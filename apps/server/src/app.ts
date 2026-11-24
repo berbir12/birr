@@ -6,12 +6,15 @@ import { isAllowed } from './auth/allowlist.js';
 import { validateInitData } from './auth/initData.js';
 import type { DB } from './db/client.js';
 import type { Env } from './env.js';
+import { ingestRoutes, type Notify } from './routes/ingest.js';
 import { ensureUser, type User } from './services/users.js';
 
 export interface AppDeps {
   db: DB;
   env: Env;
   encKey: Buffer;
+  /** Sends confirmation cards for webhook-ingested SMS (the bot). */
+  notify?: Notify;
 }
 
 export type AppEnv = { Variables: { user: User } };
@@ -23,6 +26,7 @@ export function createApp(deps: AppDeps) {
   app.use('*', secureHeaders());
   app.use('*', bodyLimit({ maxSize: 20 * 1024 * 1024 }));
   app.get('/health', (c) => c.json({ ok: true }));
+  app.route('/ingest', ingestRoutes(deps));
 
   // ---- Mini App API: every request must carry valid initData ----
   const api = new Hono<AppEnv>();

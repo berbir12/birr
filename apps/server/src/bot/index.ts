@@ -1,6 +1,7 @@
 import { parseAmount, splitMessages } from '@birr/parser';
 import { formatEtb, tidyName } from '@birr/shared';
-import { Bot, InlineKeyboard, type Context } from 'grammy';
+import { Api, Bot, InlineKeyboard, type Context } from 'grammy';
+import { revokeIngestSecret, rotateIngestSecret } from '../services/ingestSecret.js';
 import { isAllowed, REJECTION_MESSAGE } from '../auth/allowlist.js';
 import type { DB } from '../db/client.js';
 import type { Env } from '../env.js';
@@ -96,6 +97,38 @@ export function createBot(deps: BotDeps, botConfig?: ConstructorParameters<typeo
     await ctx.reply(what ? `↩️ Undone: ${what}.` : 'Nothing to undo from the last 24 hours.');
   });
 
+  bot.command('connect', async (ctx) => {
+    const secret = rotateIngestSecret(db, encKey, ctx.user.id);
+    const url = `${env.PUBLIC_URL}/ingest/sms`;
+    const lines = [
+      '🔗 <b>Automatic SMS forwarding</b>',
+      '',
+      `URL: <code>${esc(url)}</code>`,
+      `Token: <code>${esc(secret)}</code>`,
+      '',
+      '<b>iPhone (Shortcuts → Automation → New → Message)</b>',
+      '1. Message Contains: <code>telebirr</code> → Run Immediately',
+      '2. Action <b>Get Contents of URL</b>: the URL above, Method <b>POST</b>',
+      `3. Header <code>Authorization</code> = <code>Bearer ${esc(secret)}</code>`,
+      '4. Request Body <b>JSON</b>: <code>body</code> = Shortcut Input › Content, <code>sender</code> = Shortcut Input › Sender',
+      '5. Repeat with Message Contains: <code>CBE</code>',
+      '',
+      'Full guide with screenshots-level detail: SETUP.md in the repo.',
+      '',
+      '⚠️ Anyone with this token can add transactions to your account. Keep it private and delete this message once set up. ' +
+        'Running /connect again issues a new token (the old one keeps working for 1 hour). /disconnect revokes it.',
+    ];
+    if (!env.PUBLIC_URL.startsWith('https://')) {
+      lines.push('', `ℹ️ PUBLIC_URL is ${esc(env.PUBLIC_URL)} — your phone can’t reach that. Deploy, or use a tunnel and set PUBLIC_URL.`);
+    }
+    await ctx.reply(lines.join('\n'), { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+  });
+
+  bot.command('disconnect', async (ctx) => {
+    revokeIngestSecret(db, ctx.user.id);
+    await ctx.reply('🔌 Forwarding token revoked. Your phone automation will stop working until you run /connect again.');
+  });
+
   // ---------- text: either an answer to an edit prompt, or SMS to ingest ----------
   bot.on('message:text', async (ctx) => {
     const text = ctx.message.text;
@@ -114,7 +147,7 @@ export function createBot(deps: BotDeps, botConfig?: ConstructorParameters<typeo
     const now = Date.now();
     const outcomes = ingestBatch({ db, encKey }, ctx.user.id, 'bot', parts.map((body) => ({ body, receivedAt: now })));
     logIngest(ctx.user.id, outcomes);
-    await replyToOutcomes(ctx, outcomes);
+    await sendOutcomes(ctx.api, deps, ctx.user, ctx.chat.id, outcomes, 'paste');
   });
 
   function logIngest(userId: number, outcomes: IngestOutcome[]) {
@@ -123,58 +156,6 @@ export function createBot(deps: BotDeps, botConfig?: ConstructorParameters<typeo
       o.status === 'created' || (o.status === 'review' && !o.duplicate) ? [o.rawId] : [],
     );
     if (txIds.length || rawIds.length) logAction(db, userId, { action: 'ingest', payload: { txIds, rawIds } });
-  }
-
-  async function replyToOutcomes(ctx: BotContext, outcomes: IngestOutcome[]) {
-    const created = outcomes.filter((o) => o.status === 'created');
-    const dupes = outcomes.filter((o) => o.status === 'duplicate');
-    const review = outcomes.filter((o) => o.status === 'review');
-    const ignored = outcomes.filter((o) => o.status === 'ignored');
-
-    if (outcomes.length === ignored.length) {
-      await ctx.reply(
-        'That doesn’t look like a telebirr or CBE transaction SMS. Paste the full message (starting with “Dear …”).',
-      );
-      return;
-    }
-
-    if (outcomes.length > 1) {
-      const bits = [
-        `${created.length} recorded`,
-        dupes.length && `${dupes.length} already recorded`,
-        review.length && `${review.length} to review`,
-        ignored.length && `${ignored.length} skipped`,
-      ].filter(Boolean);
-      await ctx.reply(`📥 ${bits.join(' · ')}`);
-    }
-
-    for (const o of created.slice(0, MAX_CARDS)) {
-      const t = getTx(db, ctx.user.id, o.txId)!;
-      await ctx.reply(cardText(t, tzOf(ctx)), { parse_mode: 'HTML', reply_markup: mainKeyboard(t.id) });
-    }
-    if (created.length > MAX_CARDS) {
-      await ctx.reply(`…and ${created.length - MAX_CARDS} more. Open the app to review them all.`);
-    }
-
-    for (const o of dupes) {
-      if (o.status !== 'duplicate' || outcomes.length > 3) continue; // summarised above for big pastes
-      const t = o.txId ? getTx(db, ctx.user.id, o.txId) : undefined;
-      const what = t ? `${formatEtb(t.amount)}${t.counterpartyName ? ` · ${esc(tidyName(t.counterpartyName))}` : ''}` : 'this message';
-      await ctx.reply(o.restored ? `♻️ Restored ${what} (it was deleted).` : `↺ Already recorded: ${what}.`, {
-        parse_mode: 'HTML',
-      });
-    }
-
-    if (review.length) {
-      const lowConf = review.some((o) => o.status === 'review' && o.reason === 'low_confidence');
-      const n = reviewCount(db, ctx.user.id);
-      await ctx.reply(
-        (lowConf
-          ? '⚠️ I read a message but its numbers don’t add up, so I didn’t record it.'
-          : '🔍 I couldn’t read a message in a format I know yet.') + ` It’s in the review queue (${n} waiting).`,
-        { reply_markup: new InlineKeyboard().webApp('Open review queue', `${env.MINIAPP_URL}#/review`) },
-      );
-    }
   }
 
   async function applyEdit(ctx: BotContext, p: PendingEdit, text: string) {
@@ -300,4 +281,77 @@ export function createBot(deps: BotDeps, botConfig?: ConstructorParameters<typeo
 export const BOT_COMMANDS = [
   { command: 'start', description: 'Open Birr' },
   { command: 'undo', description: 'Undo the last action' },
+  { command: 'connect', description: 'Set up automatic SMS forwarding' },
+  { command: 'disconnect', description: 'Stop accepting forwarded SMS' },
 ];
+
+/**
+ * Replies to an ingest: a summary for batches, a card per new transaction, notes for duplicates
+ * and review items. Webhook deliveries stay quiet about duplicates and non-SMS, since phone
+ * automations may fire twice or on unrelated messages.
+ */
+export async function sendOutcomes(
+  api: Api,
+  deps: BotDeps,
+  user: User,
+  chatId: number,
+  outcomes: IngestOutcome[],
+  mode: 'paste' | 'webhook',
+): Promise<void> {
+  const { db, env } = deps;
+  const send = (text: string, other?: Parameters<Api['sendMessage']>[2]) => api.sendMessage(chatId, text, other);
+  const created = outcomes.filter((o) => o.status === 'created');
+  const dupes = outcomes.filter((o) => o.status === 'duplicate');
+  const review = outcomes.filter((o) => o.status === 'review' && !(mode === 'webhook' && o.duplicate));
+  const ignored = outcomes.filter((o) => o.status === 'ignored');
+
+  if (outcomes.length === ignored.length) {
+    if (mode === 'paste') {
+      await send('That doesn’t look like a telebirr or CBE transaction SMS. Paste the full message (starting with “Dear …”).');
+    }
+    return;
+  }
+
+  if (outcomes.length > 1) {
+    const bits = [
+      `${created.length} recorded`,
+      dupes.length && `${dupes.length} already recorded`,
+      review.length && `${review.length} to review`,
+      ignored.length && `${ignored.length} skipped`,
+    ].filter(Boolean);
+    await send(`📥 ${bits.join(' · ')}`);
+  }
+
+  for (const o of created.slice(0, MAX_CARDS)) {
+    const t = getTx(db, user.id, o.txId)!;
+    await send(cardText(t, user.timezone), { parse_mode: 'HTML', reply_markup: mainKeyboard(t.id) });
+  }
+  if (created.length > MAX_CARDS) {
+    await send(`…and ${created.length - MAX_CARDS} more. Open the app to review them all.`);
+  }
+
+  if (mode === 'paste' && outcomes.length <= 3) {
+    for (const o of dupes) {
+      if (o.status !== 'duplicate') continue;
+      const t = o.txId ? getTx(db, user.id, o.txId) : undefined;
+      const what = t ? `${formatEtb(t.amount)}${t.counterpartyName ? ` · ${esc(tidyName(t.counterpartyName))}` : ''}` : 'this message';
+      await send(o.restored ? `♻️ Restored ${what} (it was deleted).` : `↺ Already recorded: ${what}.`, { parse_mode: 'HTML' });
+    }
+  }
+
+  if (review.length) {
+    const lowConf = review.some((o) => o.status === 'review' && o.reason === 'low_confidence');
+    const n = reviewCount(db, user.id);
+    await send(
+      (lowConf
+        ? '⚠️ I read a message but its numbers don’t add up, so I didn’t record it.'
+        : '🔍 I couldn’t read a message in a format I know yet.') + ` It’s in the review queue (${n} waiting).`,
+      { reply_markup: new InlineKeyboard().webApp('Open review queue', `${env.MINIAPP_URL}#/review`) },
+    );
+  }
+}
+
+/** Notifier the webhook route uses to post cards into the user's private chat. */
+export function makeNotifier(api: Api, deps: BotDeps) {
+  return (user: User, outcomes: IngestOutcome[]) => sendOutcomes(api, deps, user, user.telegramId, outcomes, 'webhook');
+}

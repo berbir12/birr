@@ -35,7 +35,9 @@ Telegram only opens Mini Apps over HTTPS. In dev, tunnel the Vite port (it proxi
 cloudflared tunnel --url http://localhost:5173
 ```
 
-Put the printed `https://….trycloudflare.com` URL in `MINIAPP_URL`, restart, and send `/start` to your bot.
+Put the printed `https://….trycloudflare.com` URL in `MINIAPP_URL` and `PUBLIC_URL`, restart, and send `/start` to your bot.
+
+To record SMS automatically from your phone, see [SETUP.md](SETUP.md).
 
 ## Schema changes
 
