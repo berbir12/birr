@@ -1,158 +1,137 @@
-# Deploying Birr to a VPS
+# Deploying Birr to a VPS (no Docker)
 
-One small Linux VPS runs two containers:
+Birr runs natively on one small Linux VPS:
 
-- `server`: the API, the bot (Telegram webhook mode) and `/ingest/sms`, with SQLite on a Docker volume.
-- `web`: Caddy, which gets the HTTPS certificate, serves the Mini App and proxies the backend.
+- **`birr.service`** (systemd): Node 22 running the API, the Telegram bot (webhook mode) and `/ingest/sms`.
+  It listens on `127.0.0.1:8787` only, runs as its own unprivileged `birr` user, and can write only to
+  `/var/lib/birr` (the SQLite database and backups).
+- **Caddy**: gets the HTTPS certificate automatically, serves the Mini App and proxies the backend.
+- **`birr-backup.timer`**: takes a consistent SQLite backup daily at 03:00 Addis time and keeps 14.
 
 ```
-Internet ──443──► Caddy ──► /api, /ingest, /telegram, /health ──► server:8787 (not exposed)
-                       └──► everything else ──► Mini App static files
+Internet ──443──► Caddy ──► /api /ingest /telegram /health ──► 127.0.0.1:8787 (birr.service)
+                       └──► everything else ──► /opt/birr/apps/miniapp/dist
 ```
 
-Requirements:
+| Path | What |
+|---|---|
+| `/opt/birr` | the code (git clone, owned by `birr`) |
+| `/etc/birr/birr.env` | all configuration and secrets (root:birr, 640) |
+| `/var/lib/birr/birr.db` | the database |
+| `/var/lib/birr/backups/` | daily backups |
+| `/etc/caddy/Caddyfile` | generated from `deploy/Caddyfile.template` |
 
-- A VPS with Ubuntu 22.04/24.04 or Debian 12, 1 GB RAM or more, and ports 80/443 free.
-- A domain or subdomain you control, e.g. `birr.example.com`.
+## Requirements
+
+- Ubuntu 22.04/24.04 or Debian 12, with 1 GB RAM or more and root/sudo access.
+- Nothing else using ports 80/443. The installer checks and stops if something is.
+- A domain or subdomain whose DNS you control, e.g. `birr.example.com`.
 - A bot token from @BotFather and your numeric Telegram ID (from @userinfobot).
 
-## 1. Point DNS at the VPS
+## 1. DNS
 
-Create an **A record**: `birr.example.com → <VPS IPv4>`. Add an AAAA record if the VPS has IPv6.
-Check it before continuing, because Caddy can't get a certificate until DNS resolves:
-
-```sh
-dig +short birr.example.com    # should print the VPS IP
-```
-
-If you use Cloudflare, set the record to **DNS only** (grey cloud) for the first certificate. You can turn
-the proxy on afterwards with SSL mode "Full (strict)".
-
-## 2. Prepare the server (once)
-
-SSH in as a sudo user, then:
+Create an **A record** `birr.example.com → <VPS IPv4>`, plus AAAA if the VPS has IPv6, and wait until
+it resolves:
 
 ```sh
-# Docker Engine + compose plugin
-curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker $USER && newgrp docker
-
-# Firewall: SSH, HTTP, HTTPS only
-sudo ufw allow OpenSSH && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp && sudo ufw allow 443/udp
-sudo ufw --force enable
+nslookup birr.example.com     # must show the VPS IP
 ```
 
-## 3. Get the code onto the VPS
+On Cloudflare, use **DNS only** (grey cloud) at least until the first certificate is issued.
 
-The repo is private, so give the VPS a **read-only deploy key**:
+## 2. Install (two runs)
+
+From your PC, in the repo folder:
 
 ```sh
-ssh-keygen -t ed25519 -f ~/.ssh/birr_deploy -N "" -C "birr-vps"
-cat ~/.ssh/birr_deploy.pub
+ssh root@<vps-ip> 'bash -s -- birr.example.com' < deploy/install.sh
 ```
 
-Add that public key under GitHub → repo → Settings → Deploy keys (read-only), or from your PC run
-`gh repo deploy-key add birr_deploy.pub --repo berbir12/birr --title birr-vps`. Then on the VPS:
+Use `sudo bash -s` if you log in as a sudo user instead of root.
+
+**Run 1** installs Node 22, pnpm and Caddy, creates the `birr` user, and prints a **deploy key**. Add it
+to GitHub as a read-only deploy key (the script prints how), or from your PC:
 
 ```sh
-cat >> ~/.ssh/config <<'EOF'
-Host github-birr
-  HostName github.com
-  IdentityFile ~/.ssh/birr_deploy
-  IdentitiesOnly yes
-EOF
-git clone git@github-birr:berbir12/birr.git ~/birr && cd ~/birr
+gh repo deploy-key add birr_deploy.pub --repo berbir12/birr --title birr-vps   # paste the key into birr_deploy.pub first
 ```
 
-## 4. Configure `.env`
+**Run 2** (the same command again) clones the repo, builds the Mini App, writes `/etc/birr/birr.env`
+with freshly generated secrets, configures Caddy and the firewall, and installs the systemd units.
+
+## 3. Add your bot token and start
 
 ```sh
-cp .env.example .env && chmod 600 .env
-echo "DATA_ENCRYPTION_KEY=$(openssl rand -base64 32)"
-echo "TELEGRAM_WEBHOOK_SECRET=$(openssl rand -hex 24)"
-nano .env
+ssh root@<vps-ip>
+nano /etc/birr/birr.env          # set BOT_TOKEN=… and ALLOWED_TELEGRAM_IDS=…
+systemctl enable --now birr
+curl -s https://birr.example.com/health   # {"ok":true}
 ```
 
-Set at least the following:
+> **Copy `DATA_ENCRYPTION_KEY` from `/etc/birr/birr.env` into your password manager.** Without it the
+> encrypted raw SMS in the database and its backups can't be read.
 
-```dotenv
-DOMAIN=birr.example.com
-NODE_ENV=production
-PUBLIC_URL=https://birr.example.com
-MINIAPP_URL=https://birr.example.com
-BOT_TOKEN=<from BotFather>
-BOT_MODE=webhook
-TELEGRAM_WEBHOOK_SECRET=<generated above>
-ALLOWED_TELEGRAM_IDS=<your id>
-DATA_ENCRYPTION_KEY=<generated above>
-```
+If you also ran Birr on your PC with the same bot, stop it. A bot can't use long polling and a webhook
+at the same time.
 
-> **Back up `DATA_ENCRYPTION_KEY` somewhere safe, away from the server** (e.g. your password manager).
-> Without it the encrypted raw SMS in the database and its backups can't be read.
+## 4. Register the Mini App with @BotFather
 
-If you ran Birr locally in polling mode with the same bot, stop it first. A bot can't use long polling
-and a webhook at the same time.
-
-## 5. Start it
-
-```sh
-docker compose up -d --build
-docker compose ps                         # server should become "healthy"
-docker compose logs -f server             # look for "[api] listening on :8787"
-curl https://birr.example.com/health      # {"ok":true}
-```
-
-The first build takes a few minutes. Caddy gets the TLS certificate on the first HTTPS request.
-`docker compose logs web` shows progress if it doesn't work straight away.
-
-## 6. Register the Mini App with @BotFather
-
-The **Open Birr** button that `/start` sends already works, because inline `web_app` buttons accept any
-HTTPS URL. To also get the **menu button** next to the message box:
+The **Open Birr** button that `/start` sends already works. To also get the menu button next to the
+message box:
 
 1. @BotFather → `/mybots` → your bot → **Bot Settings** → **Menu Button** → **Configure menu button**.
-2. Send the URL `https://birr.example.com` and a title, e.g. `Birr`.
+2. Send `https://birr.example.com` and a title, e.g. `Birr`.
 
-Optional: **Bot Settings → Configure Mini App → Enable Mini App** with the same URL, which gives the bot
-a launchable Mini App on its profile.
+Optional: **Bot Settings → Configure Mini App → Enable Mini App** with the same URL.
 
-## 7. Connect your phone
+## 5. Connect your iPhone
 
-Send `/start`, then `/connect` to the bot and follow [SETUP.md](SETUP.md) (iPhone Shortcuts).
+Send `/connect` to the bot and follow [SETUP.md](SETUP.md).
 
 ## Updating
 
-```sh
-cd ~/birr && git pull && docker compose up -d --build
-```
-
-Migrations run automatically on start. SQLite data lives in the `birr-data` volume and survives rebuilds.
-
-## Backups
-
-Run a consistent online backup daily at 03:00 Addis time, keeping the last 14:
+After pushing to `main`:
 
 ```sh
-crontab -e
-# add (VPS clock in UTC; 00:00 UTC = 03:00 EAT):
-0 0 * * * cd ~/birr && docker compose exec -T server ./node_modules/.bin/tsx src/db/backup.ts >> ~/birr-backup.log 2>&1
+ssh root@<vps-ip> /opt/birr/deploy/update.sh
 ```
 
-Backups land in the volume under `/data/backups`. Copy them off the VPS now and then:
+It pulls, installs, rebuilds the Mini App, restarts the service (migrations run on start) and waits for
+it to become healthy.
+
+## Day-to-day
 
 ```sh
-docker compose cp server:/data/backups ./backups-$(date +%F)
+systemctl status birr                    # running?
+journalctl -u birr -f                    # live logs (no message bodies or secrets are logged)
+systemctl restart birr                   # after editing /etc/birr/birr.env
+systemctl list-timers birr-backup.timer  # next backup
+systemctl start birr-backup              # back up now
+ls -lh /var/lib/birr/backups/
 ```
 
-To restore one: `docker compose stop server`, copy the backup over `/data/birr.db`
-(`docker compose cp ./birr-….db server:/data/birr.db`), then `docker compose start server`.
+Copy backups off the VPS now and then, from your PC:
+
+```sh
+scp -r root@<vps-ip>:/var/lib/birr/backups ./birr-backups-$(date +%F)
+```
+
+**Restore** a backup:
+
+```sh
+systemctl stop birr
+cp /var/lib/birr/backups/birr-<timestamp>.db /var/lib/birr/birr.db
+rm -f /var/lib/birr/birr.db-wal /var/lib/birr/birr.db-shm
+chown birr:birr /var/lib/birr/birr.db
+systemctl start birr
+```
 
 ## Troubleshooting
 
 | Symptom | Check |
 |---|---|
-| Bot doesn't answer | `docker compose logs server`. The `BOT_TOKEN` or `ALLOWED_TELEGRAM_IDS` may be wrong. Run `curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo` and look at `last_error_message`. |
-| Certificate errors | DNS doesn't point at the VPS yet, ports 80/443 are closed, or Cloudflare proxy is on before the first certificate. |
-| Mini App shows "Could not reach the server" | `PUBLIC_URL`/`MINIAPP_URL` must both be `https://<DOMAIN>`. |
-| `server` keeps restarting | Usually a missing or invalid `.env` value. The log says which one. |
-| SQLite "readonly database" | The volume was created by an older image. Run `docker compose run --rm -u root server chown -R node:node /data` once. |
+| `birr` won't start | `journalctl -u birr -n 50`. The log names any missing or invalid setting in `/etc/birr/birr.env`. |
+| Bot doesn't answer | `curl -s https://api.telegram.org/bot<TOKEN>/getWebhookInfo` and look at `last_error_message`. Is your ID in `ALLOWED_TELEGRAM_IDS`? |
+| Certificate errors | `journalctl -u caddy -n 50`. Usually DNS isn't pointing at the VPS yet, or a Cloudflare proxy is in front. |
+| Mini App says "Could not reach the server" | `PUBLIC_URL` and `MINIAPP_URL` must both be `https://<your domain>`. |
+| Installer says ports 80/443 are in use | Another web server (nginx/Apache) is running. Stop or remove it, or ask for a config that runs Birr behind it. |

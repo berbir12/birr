@@ -1,0 +1,43 @@
+[Unit]
+Description=Birr finance tracker (API + Telegram bot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=birr
+Group=birr
+WorkingDirectory=/opt/birr/apps/server
+# All configuration and secrets. Owned root:birr, mode 640.
+EnvironmentFile=/etc/birr/birr.env
+ExecStart=/opt/birr/apps/server/node_modules/.bin/tsx src/index.ts
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+
+# SQLite lives here (/var/lib/birr), created and owned by systemd for the birr user.
+StateDirectory=birr
+StateDirectoryMode=0750
+
+# Hardening: the app can write only to its state directory.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

@@ -8,6 +8,6 @@ export default defineConfig({
     port: 5173,
     // Tunnelled dev (cloudflared) arrives with a foreign Host header.
     allowedHosts: true,
-    proxy: { '/api': 'http://localhost:8787', '/ingest': 'http://localhost:8787' },
+    proxy: { '/api': 'http://127.0.0.1:8787', '/ingest': 'http://127.0.0.1:8787' },
   },
 });

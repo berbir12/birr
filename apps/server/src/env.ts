@@ -22,6 +22,8 @@ const bool = z
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().int().default(8787),
+  /** Bind address. 127.0.0.1 keeps the API reachable only through Caddy on the same machine. */
+  HOST: z.string().default('127.0.0.1'),
   PUBLIC_URL: z.url().default('http://localhost:8787'),
   MINIAPP_URL: z.url().default('http://localhost:5173'),
 

@@ -1,0 +1,27 @@
+# Installed to /etc/caddy/Caddyfile by deploy/install.sh (__DOMAIN__ is substituted).
+__DOMAIN__ {
+	encode zstd gzip
+
+	# API, Telegram webhook and SMS ingest go to the Node server (localhost only).
+	@backend path /api/* /ingest/* /telegram/* /health
+	handle @backend {
+		reverse_proxy 127.0.0.1:8787
+	}
+
+	# Everything else is the Mini App (SPA fallback).
+	handle {
+		root * /opt/birr/apps/miniapp/dist
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	# No `log` directive on purpose: Caddy then writes no access logs, so an ingest token
+	# sent as ?token= can never end up on disk.
+}

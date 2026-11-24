@@ -30,8 +30,8 @@ if (env.BOT_MODE === 'webhook') {
   void bot.start({ onStart: (me) => console.log(`[bot] polling as @${me.username}`) });
 }
 
-const server = serve({ fetch: app.fetch, port: env.PORT }, (info) =>
-  console.log(`[api] listening on :${info.port}`),
+const server = serve({ fetch: app.fetch, port: env.PORT, hostname: env.HOST }, (info) =>
+  console.log(`[api] listening on ${env.HOST}:${info.port}`),
 );
 
 function shutdown() {

@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Birr backup at 03:00 Addis Ababa time
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Africa/Addis_Ababa
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
