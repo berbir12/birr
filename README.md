@@ -37,7 +37,7 @@ cloudflared tunnel --url http://localhost:5173
 
 Put the printed `https://….trycloudflare.com` URL in `MINIAPP_URL` and `PUBLIC_URL`, restart, and send `/start` to your bot.
 
-To record SMS automatically from your phone, see [SETUP.md](SETUP.md).
+To record SMS automatically from your phone, see [SETUP.md](SETUP.md). To run it on a server, see [DEPLOY.md](DEPLOY.md).
 
 ## Schema changes
 
