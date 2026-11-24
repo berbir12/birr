@@ -9,7 +9,9 @@
     "typecheck": "tsc -p tsconfig.json",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file-if-exists=../../.env src/db/migrate.ts",
-    "seed": "tsx --env-file-if-exists=../../.env ../../scripts/seed.ts"
+    "seed": "tsx --env-file-if-exists=../../.env ../../scripts/seed.ts",
+    "start:prod": "tsx --env-file=../../.env src/index.ts",
+    "backup": "tsx --env-file-if-exists=../../.env src/db/backup.ts"
   },
   "dependencies": {
     "@birr/core": "workspace:*",

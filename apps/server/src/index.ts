@@ -1,4 +1,7 @@
 import { serve } from '@hono/node-server';
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { webhookCallback } from 'grammy';
 import { createApp } from './app.js';
 import { BOT_COMMANDS, createBot, makeNotifier } from './bot/index.js';
@@ -13,7 +16,17 @@ runMigrations(db);
 
 const encKey = Buffer.from(env.DATA_ENCRYPTION_KEY, 'base64');
 const bot = createBot({ db, env, encKey });
-const app = createApp({ db, env, encKey, notify: makeNotifier(bot.api, { db, env, encKey }) });
+const miniappDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../miniapp/dist');
+if (env.SERVE_MINIAPP && !existsSync(miniappDir)) {
+  throw new Error(`SERVE_MINIAPP=true but ${miniappDir} does not exist. Run: pnpm --filter @birr/miniapp build`);
+}
+const app = createApp({
+  db,
+  env,
+  encKey,
+  notify: makeNotifier(bot.api, { db, env, encKey }),
+  miniappDir: env.SERVE_MINIAPP ? miniappDir : undefined,
+});
 await bot.api.setMyCommands(BOT_COMMANDS).catch((e: unknown) => console.warn('[bot] setMyCommands failed', e instanceof Error ? e.message : e));
 
 if (env.BOT_MODE === 'webhook') {

@@ -1,3 +1,4 @@
+import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
@@ -15,6 +16,8 @@ export interface AppDeps {
   encKey: Buffer;
   /** Sends confirmation cards for webhook-ingested SMS (the bot). */
   notify?: Notify;
+  /** Absolute path of the built Mini App to serve from this server (when there is no Caddy). */
+  miniappDir?: string;
 }
 
 export type AppEnv = { Variables: { user: User } };
@@ -23,7 +26,15 @@ export function createApp(deps: AppDeps) {
   const { db, env } = deps;
   const app = new Hono();
 
-  app.use('*', secureHeaders());
+  // Telegram Web (web.telegram.org) shows Mini Apps in an iframe, so framing must be allowed
+  // for Telegram's origins only.
+  app.use(
+    '*',
+    secureHeaders({
+      xFrameOptions: false,
+      contentSecurityPolicy: { frameAncestors: ["'self'", 'https://web.telegram.org', 'https://*.telegram.org'] },
+    }),
+  );
   app.use('*', bodyLimit({ maxSize: 20 * 1024 * 1024 }));
   app.get('/health', (c) => c.json({ ok: true }));
   app.route('/ingest', ingestRoutes(deps));
@@ -56,5 +67,24 @@ export function createApp(deps: AppDeps) {
   });
 
   app.route('/api', api);
+  app.all('/api/*', (c) => c.json({ error: 'not_found' }, 404));
+  app.all('/ingest/*', (c) => c.json({ error: 'not_found' }, 404));
+
+  // ---- Mini App static files (Windows/self-hosting without Caddy) ----
+  if (deps.miniappDir) {
+    const root = deps.miniappDir;
+    // Vite's hashed assets never change; index.html must always be revalidated.
+    // (Set after the handler runs: serveStatic builds its Response before onFound fires.)
+    app.use('*', async (c, next) => {
+      await next();
+      if (c.req.method !== 'GET' || c.res.status !== 200) return;
+      const type = c.res.headers.get('content-type') ?? '';
+      if (c.req.path.startsWith('/assets/')) c.res.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+      else if (type.includes('text/html')) c.res.headers.set('Cache-Control', 'no-cache');
+    });
+    app.use('*', serveStatic({ root }));
+    // SPA fallback: unknown paths get index.html so client-side routes load.
+    app.get('*', serveStatic({ root, path: 'index.html' }));
+  }
   return app;
 }

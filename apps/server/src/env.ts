@@ -26,6 +26,8 @@ const schema = z.object({
   HOST: z.string().default('127.0.0.1'),
   PUBLIC_URL: z.url().default('http://localhost:8787'),
   MINIAPP_URL: z.url().default('http://localhost:5173'),
+  /** Serve the built Mini App (apps/miniapp/dist) from this server. For hosting without Caddy, e.g. on Windows. */
+  SERVE_MINIAPP: bool,
 
   BOT_TOKEN: z.string().min(20, 'BOT_TOKEN is required (from @BotFather)'),
   BOT_MODE: z.enum(['polling', 'webhook']).default('polling'),
