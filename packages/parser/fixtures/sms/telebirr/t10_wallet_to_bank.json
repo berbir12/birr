@@ -1,0 +1,18 @@
+{
+  "source": "telebirr",
+  "template": "telebirr.wallet_to_bank.v1",
+  "direction": "out",
+  "kind": "wallet_to_bank",
+  "amount": 450000,
+  "fee": 783,
+  "vat": 117,
+  "otherCharges": 0,
+  "balanceAfter": 592343,
+  "counterpartyName": "Awash International Bank S C",
+  "counterpartyMaskedId": "****5678",
+  "accountMaskedId": "****1111",
+  "reference": "DKO7AC0C10",
+  "receiptUrl": "https://transactioninfo.ethiotelecom.et/receipt/DKO7AC0C10",
+  "occurredAt": "2026-11-24T20:22:40+03:00",
+  "confidence": 1
+}

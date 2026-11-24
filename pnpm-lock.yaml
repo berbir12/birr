@@ -271,7 +271,11 @@ importers:
 
   packages/core: {}
 
-  packages/parser: {}
+  packages/parser:
+    dependencies:
+      '@birr/shared':
+        specifier: workspace:*
+        version: link:../shared
 
   packages/shared: {}
 

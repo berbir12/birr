@@ -49,6 +49,8 @@ export interface ParsedSms {
   receiptUrl: string | null;
   /** ISO string; null means "use the SMS received time". */
   occurredAt: string | null;
+  /** Non-fatal oddities (e.g. charges do not add up to the stated total). */
+  warnings: string[];
   /** 1 for regex templates; LLM fallback reports its own. */
   confidence: number;
   raw: string;

@@ -1,0 +1,18 @@
+{
+  "source": "telebirr",
+  "template": "telebirr.cash_in_agent.v1",
+  "direction": "in",
+  "kind": "cash_in",
+  "amount": 970600,
+  "fee": 0,
+  "vat": 0,
+  "otherCharges": 0,
+  "balanceAfter": 1043243,
+  "counterpartyName": "telebirr agent 12345",
+  "counterpartyMaskedId": null,
+  "accountMaskedId": "****1111",
+  "reference": "DKO6AB9C09",
+  "receiptUrl": null,
+  "occurredAt": "2026-11-24T20:20:57+03:00",
+  "confidence": 1
+}

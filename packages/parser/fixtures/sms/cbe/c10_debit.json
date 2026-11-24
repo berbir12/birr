@@ -1,0 +1,18 @@
+{
+  "source": "cbe",
+  "accountMaskedId": "****4321",
+  "reference": "v2-FakeRcptToken0000c10",
+  "receiptUrl": "https://mbreciept.cbe.com.et/v2-FakeRcptToken0000c10",
+  "occurredAt": null,
+  "confidence": 1,
+  "template": "cbe.debit.v1",
+  "direction": "out",
+  "kind": "debit",
+  "amount": 10000,
+  "fee": 1000,
+  "vat": 150,
+  "otherCharges": 50,
+  "balanceAfter": 14937196,
+  "counterpartyName": null,
+  "counterpartyMaskedId": null
+}

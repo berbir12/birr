@@ -1,0 +1,18 @@
+{
+  "source": "telebirr",
+  "template": "telebirr.transfer_out.v1",
+  "direction": "out",
+  "kind": "transfer_out",
+  "amount": 16000,
+  "fee": 174,
+  "vat": 26,
+  "otherCharges": 0,
+  "balanceAfter": 72643,
+  "counterpartyName": "HANNA TESFAYE",
+  "counterpartyMaskedId": "****9908",
+  "accountMaskedId": null,
+  "reference": "DKO7AB8C08",
+  "receiptUrl": "https://transactioninfo.ethiotelecom.et/receipt/DKO7AB8C08",
+  "occurredAt": "2026-11-24T17:15:08+03:00",
+  "confidence": 1
+}

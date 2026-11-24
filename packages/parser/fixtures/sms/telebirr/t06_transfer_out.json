@@ -1,0 +1,18 @@
+{
+  "source": "telebirr",
+  "template": "telebirr.transfer_out.v1",
+  "direction": "out",
+  "kind": "transfer_out",
+  "amount": 1500,
+  "fee": 87,
+  "vat": 13,
+  "otherCharges": 0,
+  "balanceAfter": 90443,
+  "counterpartyName": "Haile Gebremedhin",
+  "counterpartyMaskedId": "****3302",
+  "accountMaskedId": null,
+  "reference": "DKO6AB6C06",
+  "receiptUrl": "https://transactioninfo.ethiotelecom.et/receipt/DKO6AB6C06",
+  "occurredAt": "2026-11-24T16:39:19+03:00",
+  "confidence": 1
+}

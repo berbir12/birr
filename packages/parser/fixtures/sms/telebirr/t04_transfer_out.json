@@ -1,0 +1,18 @@
+{
+  "source": "telebirr",
+  "template": "telebirr.transfer_out.v1",
+  "direction": "out",
+  "kind": "transfer_out",
+  "amount": 5000,
+  "fee": 87,
+  "vat": 13,
+  "otherCharges": 0,
+  "balanceAfter": 93643,
+  "counterpartyName": "Samuel Girma",
+  "counterpartyMaskedId": "****5504",
+  "accountMaskedId": null,
+  "reference": "DKO2AB4C04",
+  "receiptUrl": "https://transactioninfo.ethiotelecom.et/receipt/DKO2AB4C04",
+  "occurredAt": "2026-11-24T09:09:01+03:00",
+  "confidence": 1
+}

@@ -1,0 +1,18 @@
+{
+  "source": "cbe",
+  "accountMaskedId": "****4321",
+  "reference": "v2-FakeRcptToken0000c05",
+  "receiptUrl": "https://mbreciept.cbe.com.et/v2-FakeRcptToken0000c05",
+  "occurredAt": null,
+  "confidence": 1,
+  "template": "cbe.transfer_out.v1",
+  "direction": "out",
+  "kind": "transfer_out",
+  "amount": 1500000,
+  "fee": 300,
+  "vat": 45,
+  "otherCharges": 15,
+  "balanceAfter": 15869836,
+  "counterpartyName": "Tigist Alemu W/giorgis",
+  "counterpartyMaskedId": "****3303"
+}

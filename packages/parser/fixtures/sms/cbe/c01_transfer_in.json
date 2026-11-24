@@ -1,0 +1,18 @@
+{
+  "source": "cbe",
+  "accountMaskedId": "****4321",
+  "reference": "v2-FakeRcptToken0000c01",
+  "receiptUrl": "https://mbreciept.cbe.com.et/v2-FakeRcptToken0000c01",
+  "occurredAt": null,
+  "confidence": 1,
+  "template": "cbe.transfer_in.v1",
+  "direction": "in",
+  "kind": "transfer_in",
+  "amount": 500000,
+  "fee": 0,
+  "vat": 0,
+  "otherCharges": 0,
+  "balanceAfter": 545816,
+  "counterpartyName": "Biniam Mulugeta Assefa",
+  "counterpartyMaskedId": "****2202"
+}

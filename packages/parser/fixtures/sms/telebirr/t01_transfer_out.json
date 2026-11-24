@@ -1,0 +1,18 @@
+{
+  "source": "telebirr",
+  "template": "telebirr.transfer_out.v1",
+  "direction": "out",
+  "kind": "transfer_out",
+  "amount": 1500,
+  "fee": 87,
+  "vat": 13,
+  "otherCharges": 0,
+  "balanceAfter": 115943,
+  "counterpartyName": "Kedir Hussen",
+  "counterpartyMaskedId": "****8807",
+  "accountMaskedId": null,
+  "reference": "DKN5AB1C01",
+  "receiptUrl": "https://transactioninfo.ethiotelecom.et/receipt/DKN5AB1C01",
+  "occurredAt": "2026-11-23T18:46:37+03:00",
+  "confidence": 1
+}

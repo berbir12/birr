@@ -1,0 +1,18 @@
+{
+  "source": "telebirr",
+  "template": "telebirr.transfer_out.v1",
+  "direction": "out",
+  "kind": "transfer_out",
+  "amount": 1500,
+  "fee": 87,
+  "vat": 13,
+  "otherCharges": 0,
+  "balanceAfter": 92043,
+  "counterpartyName": "Yonas Tadesse",
+  "counterpartyMaskedId": "****4403",
+  "accountMaskedId": null,
+  "reference": "DKO1AB5C05",
+  "receiptUrl": "https://transactioninfo.ethiotelecom.et/receipt/DKO1AB5C05",
+  "occurredAt": "2026-11-24T09:40:22+03:00",
+  "confidence": 1
+}

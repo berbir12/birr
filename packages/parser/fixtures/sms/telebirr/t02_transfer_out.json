@@ -1,0 +1,18 @@
+{
+  "source": "telebirr",
+  "template": "telebirr.transfer_out.v1",
+  "direction": "out",
+  "kind": "transfer_out",
+  "amount": 10000,
+  "fee": 87,
+  "vat": 13,
+  "otherCharges": 0,
+  "balanceAfter": 105843,
+  "counterpartyName": "Ahmed Yusuf",
+  "counterpartyMaskedId": "****7706",
+  "accountMaskedId": null,
+  "reference": "DKN1AB2C02",
+  "receiptUrl": "https://transactioninfo.ethiotelecom.et/receipt/DKN1AB2C02",
+  "occurredAt": "2026-11-23T19:09:06+03:00",
+  "confidence": 1
+}

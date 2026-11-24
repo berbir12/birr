@@ -1,0 +1,18 @@
+{
+  "source": "telebirr",
+  "template": "telebirr.transfer_out.v1",
+  "direction": "out",
+  "kind": "transfer_out",
+  "amount": 550000,
+  "fee": 696,
+  "vat": 104,
+  "otherCharges": 0,
+  "balanceAfter": 41543,
+  "counterpartyName": "Selam Bekele",
+  "counterpartyMaskedId": "****1234",
+  "accountMaskedId": null,
+  "reference": "DKO1A2BC34",
+  "receiptUrl": "https://transactioninfo.ethiotelecom.et/receipt/DKO1A2BC34",
+  "occurredAt": "2026-11-24T20:31:20+03:00",
+  "confidence": 1
+}
