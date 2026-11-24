@@ -1,0 +1,2 @@
+* text=auto eol=lf
+packages/parser/fixtures/sms/** -text

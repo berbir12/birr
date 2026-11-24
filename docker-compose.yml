@@ -1,0 +1,30 @@
+# Production: `docker compose up -d --build` on the VPS.
+services:
+  server:
+    build: { context: ., target: server }
+    env_file: .env
+    environment:
+      DATABASE_PATH: /data/birr.db
+      BOT_MODE: webhook
+    volumes:
+      - birr-data:/data
+    restart: unless-stopped
+
+  web:
+    build: { context: ., target: web }
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [server]
+    restart: unless-stopped
+
+volumes:
+  birr-data:
+  caddy-data:
+  caddy-config:

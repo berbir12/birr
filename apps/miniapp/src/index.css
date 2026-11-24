@@ -1,0 +1,21 @@
+@import 'tailwindcss';
+
+/* Telegram theme params are bound to --tg-theme-* CSS vars at startup. */
+@theme {
+  --color-bg: var(--tg-theme-bg-color, #ffffff);
+  --color-bg2: var(--tg-theme-secondary-bg-color, #f1f1f4);
+  --color-section: var(--tg-theme-section-bg-color, #ffffff);
+  --color-text: var(--tg-theme-text-color, #111111);
+  --color-hint: var(--tg-theme-hint-color, #8e8e93);
+  --color-link: var(--tg-theme-link-color, #2481cc);
+  --color-accent: var(--tg-theme-button-color, #2481cc);
+  --color-accent-text: var(--tg-theme-button-text-color, #ffffff);
+  --color-danger: var(--tg-theme-destructive-text-color, #e53935);
+}
+
+html,
+body {
+  background: var(--color-bg2);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+}
