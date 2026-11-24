@@ -269,7 +269,15 @@ importers:
         specifier: ^4.23.15
         version: 4.23.15
 
-  packages/core: {}
+  packages/core:
+    dependencies:
+      '@birr/shared':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      '@birr/parser':
+        specifier: workspace:*
+        version: link:../parser
 
   packages/parser:
     dependencies:

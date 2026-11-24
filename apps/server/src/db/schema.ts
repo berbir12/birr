@@ -103,6 +103,8 @@ export const rawMessages = sqliteTable(
     template: text('template'),
     confidence: real('confidence'),
     parseError: text('parse_error'),
+    /** Best-effort parse (never the raw text) for low-confidence items, to prefill the review form. */
+    candidate: text('candidate', { mode: 'json' }).$type<Record<string, unknown>>(),
     createdAt: createdAt(),
   },
   (t) => [
@@ -146,6 +148,8 @@ export const transactions = sqliteTable(
     reconciliation: text('reconciliation', { enum: ['ok', 'gap', 'unknown'] }).notNull().default('unknown'),
     reconciliationDelta: integer('reconciliation_delta'),
     confidence: real('confidence').notNull().default(1),
+    /** Set when I tap OK on the confirmation card (or edit it), i.e. a human has looked at it. */
+    confirmedAt: integer('confirmed_at'),
     deletedAt: integer('deleted_at'),
     createdAt: createdAt(),
   },

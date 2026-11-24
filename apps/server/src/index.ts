@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server';
 import { webhookCallback } from 'grammy';
 import { createApp } from './app.js';
-import { createBot } from './bot/index.js';
+import { BOT_COMMANDS, createBot } from './bot/index.js';
 import { openDb, runMigrations } from './db/client.js';
 import { loadEnv } from './env.js';
 
@@ -13,7 +13,8 @@ runMigrations(db);
 
 const encKey = Buffer.from(env.DATA_ENCRYPTION_KEY, 'base64');
 const app = createApp({ db, env, encKey });
-const bot = createBot({ db, env });
+const bot = createBot({ db, env, encKey });
+await bot.api.setMyCommands(BOT_COMMANDS).catch((e: unknown) => console.warn('[bot] setMyCommands failed', e instanceof Error ? e.message : e));
 
 if (env.BOT_MODE === 'webhook') {
   app.post(
