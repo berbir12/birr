@@ -287,7 +287,9 @@ export const debts = birr
   .enableRLS();
 
 export const recurringItems = birr
-  .table('recurring_items', {
+  .table(
+    'recurring_items',
+    {
     id: id(),
     userId: userId(),
     label: text('label').notNull(),
@@ -300,7 +302,9 @@ export const recurringItems = birr
     nextExpectedAt: ms('next_expected_at').notNull(),
     status: text('status', { enum: ['detected', 'confirmed', 'dismissed'] }).notNull().default('detected'),
     createdAt: createdAt(),
-  })
+    },
+    (t) => [uniqueIndex('recurring_user_match').on(t.userId, t.matchKey)],
+  )
   .enableRLS();
 
 export const achievements = birr

@@ -1,9 +1,11 @@
 import type { TxListItem } from '@birr/shared';
+import { Tag, Trash2, TriangleAlert } from 'lucide-react';
 import { useRef, useState, type PointerEvent } from 'react';
 import { dayKey, dayLabel, money, time, title } from '../format';
 import { t } from '../i18n';
 import { haptic } from '../telegram';
-import { Amount, CategoryBadge } from '../ui';
+import { CategoryIcon } from '../theme';
+import { Amount } from '../ui';
 
 const REVEAL = 84;
 
@@ -50,25 +52,26 @@ export function TxRow({
     setDx(snapped);
   };
 
-  const sub = [tx.categoryName, tx.internal ? t('tx.internal') : null, tx.accountName].filter(Boolean).join(' · ');
+  const sub = [tx.internal ? t('tx.internal') : tx.categoryName, tx.accountName].filter(Boolean).join(' · ');
 
   return (
-    <div className="relative overflow-hidden border-b border-sep last:border-b-0">
+    <div className="relative overflow-hidden">
       {onCategory && (
         <button
-          className="absolute inset-y-0 left-0 flex w-[84px] items-center justify-center bg-accent text-sm font-medium text-accent-text"
+          className="absolute inset-y-0 left-0 flex w-[84px] flex-col items-center justify-center gap-1 bg-accent text-[12px] font-semibold text-accent-text"
           onClick={() => {
             setDx(0);
             onCategory();
           }}
           tabIndex={dx > 0 ? 0 : -1}
         >
-          🏷 {t('tx.recategorize')}
+          <Tag size={18} />
+          {t('tx.recategorize')}
         </button>
       )}
       {onDelete && (
         <button
-          className="absolute inset-y-0 right-0 flex w-[84px] items-center justify-center bg-danger text-sm font-medium text-white"
+          className="absolute inset-y-0 right-0 flex w-[84px] flex-col items-center justify-center gap-1 bg-danger text-[12px] font-semibold text-white"
           onClick={() => {
             setDx(0);
             haptic.warning();
@@ -76,11 +79,12 @@ export function TxRow({
           }}
           tabIndex={dx < 0 ? 0 : -1}
         >
-          🗑 {t('tx.delete')}
+          <Trash2 size={18} />
+          {t('tx.delete')}
         </button>
       )}
       <button
-        className="relative flex w-full touch-pan-y items-center gap-3 bg-section px-4 py-3 text-left transition-transform active:bg-bg2"
+        className="group relative flex w-full touch-pan-y items-center gap-3 bg-section pl-4 text-left transition-transform active:bg-bg2"
         style={{ transform: `translateX(${dx}px)`, transitionDuration: start.current ? '0ms' : '180ms' }}
         onPointerDown={down}
         onPointerMove={move}
@@ -92,20 +96,22 @@ export function TxRow({
           onOpen();
         }}
       >
-        <CategoryBadge icon={tx.internal ? '🔁' : tx.categoryIcon} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate font-medium">{title(tx)}</span>
-            {tx.reconciliation === 'gap' && <span title="possible missing SMS">⚠️</span>}
+        <CategoryIcon categoryKey={tx.categoryKey} emoji={tx.categoryIcon} internal={tx.internal} />
+        <div className="flex min-w-0 flex-1 items-center gap-3 border-b border-sep py-3 pr-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-[16px] font-medium">{title(tx)}</span>
+              {tx.reconciliation === 'gap' && <TriangleAlert size={14} className="shrink-0 text-warn" aria-label="possible missing SMS" />}
+            </div>
+            <div className="truncate text-[13px] text-hint">{sub}</div>
           </div>
-          <div className="truncate text-[13px] text-hint">{sub}</div>
-        </div>
-        <div className="text-right">
-          <Amount cents={tx.amount} direction={tx.direction} />
-          <div className="text-[12px] text-hint">
-            {tx.occurredAtEstimated ? '~' : ''}
-            {time(tx.occurredAt)}
-            {tx.charges ? ` · fee ${money(tx.charges)}` : ''}
+          <div className="shrink-0 text-right">
+            <Amount cents={tx.amount} direction={tx.direction} className="text-[16px]" />
+            <div className="tabular text-[12px] text-hint">
+              {tx.charges ? `fee ${money(tx.charges)} · ` : ''}
+              {tx.occurredAtEstimated ? '~' : ''}
+              {time(tx.occurredAt)}
+            </div>
           </div>
         </div>
       </button>

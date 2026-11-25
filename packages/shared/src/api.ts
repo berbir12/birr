@@ -65,6 +65,7 @@ export interface TxPage {
 export interface TxFilters {
   accountId?: number;
   categoryId?: number;
+  personId?: number;
   direction?: 'in' | 'out';
   kind?: string;
   minAmount?: Cents;
@@ -170,4 +171,100 @@ export interface ImportEntryDto {
   sender: string | null;
   body: string;
   receivedAt: number | null;
+}
+
+// ---------------------------------------------------------------- Phase 6
+
+export type AnalyticsRange = 'month' | 'last-month' | '3m' | 'year';
+
+export interface AnalyticsDto {
+  range: AnalyticsRange;
+  from: number;
+  to: number;
+  totalOut: Cents;
+  totalIn: Cents;
+  byCategory: Array<{ categoryKey: string; name: string; icon: string | null; amount: Cents }>;
+  /** Last 6 calendar months, oldest first. */
+  cashflow: Array<{ key: string; start: number; in: Cents; out: Cents }>;
+  /** Spending per local day within the range: "2026-11-24" → cents. */
+  daily: Record<string, Cents>;
+  topPeople: Array<{ key: string; name: string; personId: number | null; out: Cents; in: Cents; count: number }>;
+  fees: { total: Cents; fee: Cents; vat: Cents; other: Cents; bySource: Record<string, Cents>; count: number; yearTotal: Cents };
+}
+
+export interface BudgetDto {
+  categoryId: number;
+  categoryKey: string;
+  name: string;
+  icon: string | null;
+  amount: Cents;
+  spent: Cents;
+  remaining: Cents;
+  pct: number;
+  state: 'ok' | 'warning' | 'over';
+  projected: Cents | null;
+}
+
+export interface BudgetsDto {
+  month: { key: string; start: number; end: number; daysLeft: number };
+  budgets: BudgetDto[];
+  total: { amount: Cents; spent: Cents };
+}
+
+export interface GoalDto {
+  id: number;
+  name: string;
+  emoji: string | null;
+  target: Cents;
+  saved: Cents;
+  deadline: number | null;
+  achievedAt: number | null;
+  pct: number;
+  remaining: Cents;
+  weeksLeft: number | null;
+  suggestedWeekly: Cents | null;
+  overdue: boolean;
+}
+
+export interface PersonDto {
+  id: number;
+  name: string;
+  maskedId: string | null;
+  out: Cents;
+  in: Cents;
+  count: number;
+  lastAt: number | null;
+  /** > 0 they owe me, < 0 I owe them. */
+  balance: Cents;
+}
+
+export interface DebtDto {
+  id: number;
+  personId: number;
+  personName: string;
+  direction: 'lent' | 'borrowed';
+  amount: Cents;
+  note: string | null;
+  dueAt: number | null;
+  createdAt: number;
+  settledAt: number | null;
+  settledTransactionId: number | null;
+}
+
+export interface PersonDetailDto {
+  person: PersonDto;
+  debts: DebtDto[];
+  recent: TxListItem[];
+}
+
+export interface RecurringDto {
+  id: number;
+  label: string;
+  categoryKey: string | null;
+  intervalDays: number;
+  avgAmount: Cents;
+  monthlyAmount: Cents;
+  lastSeenAt: number;
+  nextExpectedAt: number;
+  status: 'detected' | 'confirmed';
 }

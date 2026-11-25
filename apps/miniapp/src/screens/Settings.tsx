@@ -1,22 +1,44 @@
 import { detectSource, parseImportFile } from '@birr/parser';
 import type { ImportSummaryDto, SettingsDto } from '@birr/shared';
 import { useQueryClient } from '@tanstack/react-query';
+import {
+  ArrowLeftRight,
+  Bell,
+  CalendarDays,
+  CircleCheck,
+  Copy,
+  Download,
+  FolderOpen,
+  Globe,
+  KeyRound,
+  Layers,
+  Plus,
+  ScanSearch,
+  Smartphone,
+  Trash2,
+  TriangleAlert,
+  Upload,
+  Zap,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
 import { del, post } from '../api';
-import { importApi, keys, useCategories, useCategoryMutations, useDeleteRule, usePatchSettings, useRules, useSettings, type ImportResult } from '../data';
+import { importApi, keys, useCategories, useCategoryMutations, useDeleteRule, usePatchSettings, useRules, useSettings, useSummary, type ImportResult } from '../data';
 import { fullDate, money, parseEtb } from '../format';
 import { t } from '../i18n';
 import { haptic } from '../telegram';
+import { CategoryIcon } from '../theme';
 import {
   Button,
-  Chip,
   Empty,
   ErrorState,
   Field,
+  IconTile,
   inputClass,
+  PageHeader,
   Row,
   Section,
+  Segmented,
   Spinner,
   Toggle,
   useBackButton,
@@ -25,49 +47,62 @@ import {
   WebBack,
 } from '../ui';
 
-const chevron = <span className="text-hint">›</span>;
-
 export function Settings() {
   const s = useSettings();
+  const summary = useSummary();
   const save = usePatchSettings();
   const [, go] = useLocation();
   const toast = useToast();
 
-  if (s.isLoading) return <Spinner />;
+  if (s.isLoading) return <div className="px-4"><Spinner /></div>;
   if (s.error || !s.data) return <ErrorState error={s.error} onRetry={() => void s.refetch()} />;
   const d = s.data;
   const update = (p: Partial<SettingsDto>) =>
     save.mutate(p, { onSuccess: () => (haptic.select(), toast(t('settings.saved'))), onError: () => toast(t('common.error')) });
+  const review = summary.data?.reviewCount ?? 0;
 
   return (
-    <div className="px-3 pt-4">
-      <h1 className="mb-4 px-2 text-xl font-semibold">{t('settings.title')}</h1>
+    <div className="px-4 pt-4">
+      <PageHeader title={t('settings.title')} />
 
-      <Section title={t('settings.language')} footer={d.locale === 'am' ? t('settings.language.am.soon') : undefined}>
-        <div className="flex gap-2 p-3">
-          <Chip active={d.locale === 'en'} onClick={() => update({ locale: 'en' })}>
-            English
-          </Chip>
-          <Chip active={d.locale === 'am'} onClick={() => update({ locale: 'am' })}>
-            አማርኛ
-          </Chip>
-        </div>
+      <Section>
+        <Row
+          left={<IconTile icon={ScanSearch} color="var(--birr-s1)" />}
+          onClick={() => go('/review')}
+          chevron
+          right={review > 0 ? <span className="rounded-full bg-danger px-2 py-0.5 text-[13px] font-semibold text-white">{review}</span> : undefined}
+        >
+          {t('review.title')}
+        </Row>
       </Section>
 
-      <Section title={t('settings.calendar')} footer={d.calendarMode === 'ethiopian' ? t('settings.calendar.soon') : undefined}>
-        <div className="flex gap-2 p-3">
-          <Chip active={d.calendarMode === 'gregorian'} onClick={() => update({ calendarMode: 'gregorian' })}>
-            {t('settings.calendar.gregorian')}
-          </Chip>
-          <Chip active={d.calendarMode === 'ethiopian'} onClick={() => update({ calendarMode: 'ethiopian' })}>
-            {t('settings.calendar.ethiopian')}
-          </Chip>
+      <Section footer={d.locale === 'am' ? t('settings.language.am.soon') : d.calendarMode === 'ethiopian' ? t('settings.calendar.soon') : undefined}>
+        <div className="flex items-center gap-3 border-b border-sep px-4 py-3">
+          <IconTile icon={Globe} color="var(--birr-s7)" />
+          <span className="flex-1 text-[16px]">{t('settings.language')}</span>
+          <div className="w-40">
+            <Segmented value={d.locale} onChange={(v) => update({ locale: v })} options={[{ value: 'en', label: 'English' }, { value: 'am', label: 'አማርኛ' }]} />
+          </div>
+        </div>
+        <div className="flex items-center gap-3 px-4 py-3">
+          <IconTile icon={CalendarDays} color="var(--birr-s2)" />
+          <span className="flex-1 text-[16px]">{t('settings.calendar')}</span>
+          <div className="w-40">
+            <Segmented
+              value={d.calendarMode}
+              onChange={(v) => update({ calendarMode: v })}
+              options={[
+                { value: 'gregorian', label: 'GC' },
+                { value: 'ethiopian', label: 'ዓ.ም' },
+              ]}
+            />
+          </div>
         </div>
       </Section>
 
       <Section title={t('settings.alerts')}>
-        <Row right={<Toggle checked={d.digestEnabled} onChange={(v) => update({ digestEnabled: v })} label={t('settings.digest')} />}>
-          {t('settings.digest')}
+        <Row left={<IconTile icon={Bell} color="var(--birr-s8)" />} right={<Toggle checked={d.digestEnabled} onChange={(v) => update({ digestEnabled: v })} label={t('settings.digest')} />}>
+          <span className="text-[16px]">{t('settings.digest')}</span>
         </Row>
         {d.digestEnabled && (
           <Field label={t('settings.digestTime')}>
@@ -79,39 +114,38 @@ export function Settings() {
       </Section>
 
       <Section>
-        <Row onClick={() => go('/settings/categories')} right={chevron}>
-          🏷 {t('settings.categories')}
+        <Row left={<IconTile icon={Layers} color="var(--birr-s3)" />} onClick={() => go('/settings/categories')} chevron>
+          <span className="text-[16px]">{t('settings.categories')}</span>
         </Row>
-        <Row onClick={() => go('/settings/rules')} right={chevron}>
-          ⚡ {t('settings.rules')}
+        <Row left={<IconTile icon={Zap} color="var(--birr-s4)" />} onClick={() => go('/settings/rules')} chevron>
+          <span className="text-[16px]">{t('settings.rules')}</span>
         </Row>
       </Section>
 
       <Section>
         <Row
+          left={<IconTile icon={Smartphone} color="var(--birr-s1)" />}
           onClick={() => go('/settings/forwarding')}
-          right={
-            <span className={`text-sm ${d.ingest.connected ? 'text-in' : 'text-hint'}`}>
-              {d.ingest.connected ? t('fwd.connected') : t('fwd.notConnected')} ›
-            </span>
-          }
+          chevron
+          right={<span className={`text-[14px] ${d.ingest.connected ? 'text-in' : 'text-hint'}`}>{d.ingest.connected ? t('fwd.connected') : t('fwd.notConnected')}</span>}
         >
-          📲 {t('settings.forwarding')}
+          <span className="text-[16px]">{t('settings.forwarding')}</span>
         </Row>
-        <Row onClick={() => go('/settings/import')} right={chevron}>
-          📦 {t('settings.import')}
+        <Row left={<IconTile icon={Upload} color="var(--birr-s6)" />} onClick={() => go('/settings/import')} chevron>
+          <span className="text-[16px]">{t('settings.import')}</span>
         </Row>
-        <Row right={<span className="text-sm text-hint">{t('settings.export.soon')}</span>}>
-          <span className="text-hint">⬇️ {t('settings.export')}</span>
+        <Row left={<IconTile icon={Download} color="var(--birr-s0)" />}>
+          <span className="text-[16px] text-hint">{t('settings.export')}</span>
+          <span className="block text-[12px] text-hint">{t('settings.export.soon')}</span>
         </Row>
       </Section>
 
       <Section>
-        <Row onClick={() => go('/settings/delete')}>
-          <span className="text-danger">{t('settings.danger')}</span>
+        <Row left={<IconTile icon={Trash2} color="var(--birr-over)" />} onClick={() => go('/settings/delete')}>
+          <span className="text-[16px] text-danger">{t('settings.danger')}</span>
         </Row>
       </Section>
-      <p className="pb-6 text-center text-[12px] text-hint">Birr · private · data in Africa/Addis_Ababa time</p>
+      <p className="pb-6 text-center text-[12px] text-hint">Birr · private · Africa/Addis_Ababa</p>
     </div>
   );
 }
@@ -133,13 +167,13 @@ function MoneySetting({ label, value, onSave }: { label: string; value: number; 
   );
 }
 
-function SubPage({ title, children }: { title: string; children: React.ReactNode }) {
+export function SubPage({ title, children }: { title: string; children: React.ReactNode }) {
   const back = () => history.back();
   useBackButton(back);
   return (
-    <div className="px-3 pt-3">
+    <div className="px-4 pt-3">
       <WebBack onBack={back} />
-      <h1 className="mb-4 px-2 text-xl font-semibold">{title}</h1>
+      <PageHeader title={title} />
       {children}
     </div>
   );
@@ -170,8 +204,8 @@ export function CategoriesPage() {
                 onArchive={() => update.mutate({ id: c.id, archived: true }, { onSuccess: () => setEditing(null) })}
               />
             ) : (
-              <Row key={c.id} onClick={() => setEditing(c.id)} right={chevron}>
-                {c.icon} {c.name}
+              <Row key={c.id} left={<CategoryIcon categoryKey={c.key} emoji={c.icon} size={32} />} onClick={() => setEditing(c.id)} chevron>
+                <span className="text-[16px]">{c.name}</span>
               </Row>
             ),
           )}
@@ -189,6 +223,7 @@ export function CategoriesPage() {
         </div>
         <div className="p-3">
           <Button
+            icon={Plus}
             className="w-full"
             disabled={!name.trim() || create.isPending}
             onClick={() =>
@@ -207,10 +242,16 @@ export function CategoriesPage() {
           {cats.data
             .filter((c) => c.archived)
             .map((c) => (
-              <Row key={c.id} right={<button className="text-link" onClick={() => update.mutate({ id: c.id, archived: false })}>{t('categories.unarchive')}</button>}>
-                <span className="text-hint">
-                  {c.icon} {c.name}
-                </span>
+              <Row
+                key={c.id}
+                left={<CategoryIcon categoryKey={c.key} emoji={c.icon} size={32} />}
+                right={
+                  <button className="text-[15px] font-medium text-link" onClick={() => update.mutate({ id: c.id, archived: false })}>
+                    {t('categories.unarchive')}
+                  </button>
+                }
+              >
+                <span className="text-[16px] text-hint">{c.name}</span>
               </Row>
             ))}
         </Section>
@@ -232,7 +273,7 @@ function CategoryEditor({
 }) {
   const [v, setV] = useState(initial);
   return (
-    <div className="border-b border-sep bg-bg2/50 last:border-b-0">
+    <div className="border-b border-sep bg-bg2/60 last:border-b-0">
       <div className="flex">
         <Field label={t('categories.icon')}>
           <input value={v.icon} maxLength={4} onChange={(e) => setV({ ...v, icon: e.target.value })} className={`${inputClass} w-12`} />
@@ -262,21 +303,33 @@ function CategoryEditor({
 // ---------------- Rules ----------------
 export function RulesPage() {
   const rules = useRules();
+  const cats = useCategories();
   const remove = useDeleteRule();
+  const keyOf = (id: number) => cats.data?.find((c) => c.id === id);
   return (
     <SubPage title={t('settings.rules')}>
       {rules.isLoading && <Spinner />}
       {rules.data?.length === 0 && (
         <Section>
-          <Empty title={t('rules.empty')} icon="⚡" />
+          <Empty title={t('rules.empty')} icon={Zap} />
         </Section>
       )}
       {!!rules.data?.length && (
         <Section>
           {rules.data.map((r) => (
-            <Row key={r.id} right={<button className="text-danger" onClick={() => remove.mutate(r.id)}>{t('rules.delete')}</button>}>
-              <div className="truncate capitalize">{r.pattern}</div>
-              <div className="text-[13px] text-hint">→ {r.categoryName}</div>
+            <Row
+              key={r.id}
+              left={<CategoryIcon categoryKey={keyOf(r.categoryId)?.key} emoji={keyOf(r.categoryId)?.icon} size={32} />}
+              right={
+                <button className="text-[15px] font-medium text-danger" onClick={() => remove.mutate(r.id)}>
+                  {t('rules.delete')}
+                </button>
+              }
+            >
+              <div className="truncate text-[16px] capitalize">{r.pattern}</div>
+              <div className="flex items-center gap-1 text-[13px] text-hint">
+                <ArrowLeftRight size={12} /> {r.categoryName}
+              </div>
             </Row>
           ))}
         </Section>
@@ -293,41 +346,56 @@ export function ForwardingPage() {
   const [token, setToken] = useState<{ url: string; token: string } | null>(null);
   const copy = (v: string) => void navigator.clipboard?.writeText(v).then(() => (haptic.success(), toast(t('fwd.copied'))));
   const refresh = () => void qc.invalidateQueries({ queryKey: keys.settings });
+  const connected = s.data?.ingest.connected;
 
   return (
     <SubPage title={t('settings.forwarding')}>
-      <p className="mb-4 px-2 text-sm leading-snug text-hint">{t('fwd.intro')}</p>
+      <div className="card mb-6 flex items-center gap-3 p-4">
+        <div
+          className="flex h-11 w-11 items-center justify-center rounded-full"
+          style={{ background: connected ? 'color-mix(in srgb, var(--birr-in) 14%, transparent)' : 'rgba(127,127,127,0.14)', color: connected ? 'var(--birr-in)' : 'var(--color-hint)' }}
+        >
+          {connected ? <CircleCheck size={22} /> : <Smartphone size={22} />}
+        </div>
+        <div className="min-w-0">
+          <p className="font-semibold">{connected ? t('fwd.connected') : t('fwd.notConnected')}</p>
+          {s.data?.ingest.rotatedAt && <p className="text-[13px] text-hint">{fullDate(s.data.ingest.rotatedAt)}</p>}
+        </div>
+      </div>
+      <p className="mb-3 px-1 text-[14px] leading-snug text-hint">{t('fwd.intro')}</p>
       <Section>
-        <Row right={<button className="text-link" onClick={() => copy(s.data?.ingest.url ?? '')}>{t('fwd.copy')}</button>}>
-          <div className="text-[13px] text-hint">URL</div>
+        <Row right={<CopyButton onClick={() => copy(s.data?.ingest.url ?? '')} />}>
+          <div className="text-[12px] text-hint">URL</div>
           <code className="break-all text-[13px]">{s.data?.ingest.url}</code>
-        </Row>
-        <Row>
-          <span className={s.data?.ingest.connected ? 'text-in' : 'text-hint'}>
-            {s.data?.ingest.connected ? `● ${t('fwd.connected')}` : `○ ${t('fwd.notConnected')}`}
-          </span>
-          {s.data?.ingest.rotatedAt && <span className="ml-2 text-[13px] text-hint">{fullDate(s.data.ingest.rotatedAt)}</span>}
         </Row>
       </Section>
       {token && (
         <Section footer={t('fwd.tokenOnce')}>
-          <Row right={<button className="text-link" onClick={() => copy(`Bearer ${token.token}`)}>{t('fwd.copy')}</button>}>
-            <div className="text-[13px] text-hint">Authorization</div>
+          <Row right={<CopyButton onClick={() => copy(`Bearer ${token.token}`)} />}>
+            <div className="text-[12px] text-hint">Authorization</div>
             <code className="break-all text-[13px]">Bearer {token.token}</code>
           </Row>
         </Section>
       )}
       <div className="grid gap-2">
-        <Button onClick={() => void post<{ url: string; token: string }>('/settings/ingest-secret').then((r) => (setToken(r), refresh(), haptic.success()))}>
-          🔑 {t('fwd.rotate')}
+        <Button icon={KeyRound} onClick={() => void post<{ url: string; token: string }>('/settings/ingest-secret').then((r) => (setToken(r), refresh(), haptic.success()))}>
+          {t('fwd.rotate')}
         </Button>
-        {s.data?.ingest.connected && (
+        {connected && (
           <Button kind="danger" onClick={() => void del('/settings/ingest-secret').then(() => (setToken(null), refresh()))}>
             {t('fwd.revoke')}
           </Button>
         )}
       </div>
     </SubPage>
+  );
+}
+
+function CopyButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button onClick={onClick} className="flex items-center gap-1 text-[15px] font-medium text-link active:opacity-60">
+      <Copy size={15} /> {t('fwd.copy')}
+    </button>
   );
 }
 
@@ -383,19 +451,29 @@ export function ImportPage() {
 
   const s = preview?.summary;
   const n = s ? s.created + s.review : 0;
-  const mainButton = useMainButton(stage === 'preview' && n > 0 ? { text: t('import.go', { n }), onClick: () => void commit() } : stage === 'importing' ? { text: t('import.go', { n }), onClick: () => {}, loading: true } : null);
+  const mainButton = useMainButton(
+    stage === 'preview' && n > 0
+      ? { text: t('import.go', { n }), onClick: () => void commit() }
+      : stage === 'importing'
+        ? { text: t('import.go', { n }), onClick: () => {}, loading: true }
+        : null,
+  );
 
   return (
     <SubPage title={t('settings.import')}>
-      <p className="mb-4 px-2 text-sm leading-snug text-hint">{t('import.intro')}</p>
+      <p className="mb-4 px-1 text-[14px] leading-snug text-hint">{t('import.intro')}</p>
       <input ref={input} type="file" accept=".xml,.csv,.tsv,.txt,text/*" className="hidden" onChange={(e) => e.target.files?.[0] && void onFile(e.target.files[0])} />
       {(stage === 'idle' || stage === 'done') && (
-        <Button className="mb-4 w-full" onClick={() => input.current?.click()}>
-          📂 {t('import.choose')}
+        <Button icon={FolderOpen} className="mb-4 w-full" onClick={() => input.current?.click()}>
+          {t('import.choose')}
         </Button>
       )}
       {stage === 'reading' && <Spinner label={t('import.reading')} />}
-      {error && <p className="mb-4 rounded-xl bg-danger/10 px-4 py-3 text-sm text-danger">{error}</p>}
+      {error && (
+        <p className="mb-4 flex gap-2 rounded-[14px] bg-danger/10 px-4 py-3 text-[14px] text-danger">
+          <TriangleAlert size={18} className="shrink-0" /> {error}
+        </p>
+      )}
       {s && (stage === 'preview' || stage === 'importing') && (
         <Section title={s.fileName}>
           <Row>{t('import.preview', { relevant: s.relevant, inFile: s.inFile })}</Row>
@@ -403,15 +481,17 @@ export function ImportPage() {
             telebirr {s.bySource.telebirr} · CBE {s.bySource.cbe}
             {s.from !== null && s.to !== null && <div className="text-[13px] text-hint">{`${fullDate(s.from)} – ${fullDate(s.to)}`}</div>}
           </Row>
-          <Row>{n > 0 ? t('import.counts', { created: s.created, duplicates: s.duplicates, review: s.review }) : t('import.nothing')}</Row>
+          <Row>
+            <span className="font-medium">{n > 0 ? t('import.counts', { created: s.created, duplicates: s.duplicates, review: s.review }) : t('import.nothing')}</span>
+          </Row>
         </Section>
       )}
       {mainButton}
       {stage === 'done' && result && (
         <Section>
-          <Row>✅ {t('import.done', { n: result.counts.created })}</Row>
-          {result.linked > 0 && <Row>🔁 {t('import.linked', { n: result.linked })}</Row>}
-          {result.gaps > 0 && <Row>⚠️ {t('import.gaps', { n: result.gaps })}</Row>}
+          <Row left={<CircleCheck size={20} className="text-in" />}>{t('import.done', { n: result.counts.created })}</Row>
+          {result.linked > 0 && <Row left={<ArrowLeftRight size={20} className="text-accent" />}>{t('import.linked', { n: result.linked })}</Row>}
+          {result.gaps > 0 && <Row left={<TriangleAlert size={20} className="text-warn" />}>{t('import.gaps', { n: result.gaps })}</Row>}
         </Section>
       )}
     </SubPage>
@@ -428,13 +508,13 @@ export function DeletePage() {
     return (
       <SubPage title={t('delete.title')}>
         <Section>
-          <Empty title={t('delete.done')} icon="🧹" />
+          <Empty title={t('delete.done')} icon={CircleCheck} />
         </Section>
       </SubPage>
     );
   return (
     <SubPage title={t('delete.title')}>
-      <p className="mb-4 px-2 text-sm leading-snug">{t('delete.body')}</p>
+      <p className="mb-4 px-1 text-[15px] leading-snug">{t('delete.body')}</p>
       <Section>
         <Field label="DELETE">
           <input value={text} onChange={(e) => setText(e.target.value)} className={inputClass} autoCapitalize="characters" />
@@ -442,6 +522,7 @@ export function DeletePage() {
       </Section>
       <Button
         kind="danger"
+        icon={Trash2}
         className="w-full"
         disabled={text !== 'DELETE' || busy}
         onClick={() => {

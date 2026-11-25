@@ -176,3 +176,47 @@ export const importApi = {
   commit: (id: number) => post<ImportResult>(`/import/${id}/commit`),
   cancel: (id: number) => post(`/import/${id}/cancel`),
 };
+
+// ---------------------------------------------------------------- Phase 6
+
+import type { AnalyticsDto, AnalyticsRange, BudgetsDto, DebtDto, GoalDto, PersonDetailDto, PersonDto, RecurringDto, TxListItem } from '@birr/shared';
+
+export const planKeys = {
+  analytics: (r: AnalyticsRange) => ['analytics', r] as const,
+  budgets: ['budgets'] as const,
+  goals: ['goals'] as const,
+  people: ['people'] as const,
+  person: (id: number) => ['person', id] as const,
+  recurring: ['recurring'] as const,
+};
+
+export const useAnalytics = (r: AnalyticsRange) => useQuery({ queryKey: planKeys.analytics(r), queryFn: () => api<AnalyticsDto>(`/analytics?range=${r}`) });
+export const useBudgets = () => useQuery({ queryKey: planKeys.budgets, queryFn: () => api<BudgetsDto>('/budgets') });
+export const useGoals = () => useQuery({ queryKey: planKeys.goals, queryFn: () => api<GoalDto[]>('/goals') });
+export const usePeople = () => useQuery({ queryKey: planKeys.people, queryFn: () => api<PersonDto[]>('/people') });
+export const usePerson = (id: number) => useQuery({ queryKey: planKeys.person(id), queryFn: () => api<PersonDetailDto>(`/people/${id}`) });
+export const useRecurring = () => useQuery({ queryKey: planKeys.recurring, queryFn: () => api<{ items: RecurringDto[]; monthlyTotal: number }>('/recurring') });
+export const debtCandidates = (id: number) => api<TxListItem[]>(`/debts/${id}/candidates`);
+
+export function usePlanMutation<V, R = unknown>(fn: (v: V) => Promise<R>, invalidate: ReadonlyArray<readonly unknown[]>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      for (const k of invalidate) void qc.invalidateQueries({ queryKey: k });
+    },
+  });
+}
+
+export const planApi = {
+  setBudget: (v: { categoryId: number; amount: number }) => api<BudgetsDto>(`/budgets/${v.categoryId}`, { method: 'PUT', json: { amount: v.amount } }),
+  deleteBudget: (categoryId: number) => del<BudgetsDto>(`/budgets/${categoryId}`),
+  createGoal: (v: { name: string; emoji?: string | null; target: number; deadline?: number | null }) => post<GoalDto>('/goals', v),
+  contribute: (v: { id: number; amount: number }) => post<GoalDto>(`/goals/${v.id}/contribute`, { amount: v.amount }),
+  archiveGoal: (id: number) => patch<GoalDto>(`/goals/${id}`, { archived: true }),
+  createDebt: (v: { personId?: number; personName?: string; direction: 'lent' | 'borrowed'; amount: number; note?: string | null }) => post<DebtDto>('/debts', v),
+  settleDebt: (v: { id: number; transactionId: number | null }) => post(`/debts/${v.id}/settle`, { transactionId: v.transactionId }),
+  reopenDebt: (id: number) => post(`/debts/${id}/reopen`),
+  deleteDebt: (id: number) => del(`/debts/${id}`),
+  recurring: (v: { id: number; action: 'confirm' | 'dismiss' }) => post(`/recurring/${v.id}/${v.action}`),
+};

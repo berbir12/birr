@@ -5,7 +5,8 @@ import { useDismissReview, useResolveReview, useRetryReview, useReview } from '.
 import { fromLocalInput, fullDate, kindLabel, parseEtb, toLocalInput } from '../format';
 import { t, type MsgKey } from '../i18n';
 import { haptic } from '../telegram';
-import { Button, Chip, Empty, ErrorState, Field, inputClass, Section, Spinner, useBackButton, useMainButton, useToast, WebBack } from '../ui';
+import { CircleCheck, RefreshCw, Trash2 } from 'lucide-react';
+import { Button, Chip, Empty, ErrorState, Field, inputClass, PageHeader, Section, Spinner, useBackButton, useMainButton, useToast, WebBack } from '../ui';
 
 const reasonLabel = (r: string | null) => {
   const key = `review.reason.${r ?? 'no_template'}` as MsgKey;
@@ -22,35 +23,36 @@ export function Review() {
   const [, go] = useLocation();
   const toast = useToast();
 
-  if (review.isLoading) return <Spinner />;
+  if (review.isLoading) return <div className="px-4"><Spinner /></div>;
   if (review.error || !review.data) return <ErrorState error={review.error} onRetry={() => void review.refetch()} />;
   const items = review.data;
 
   return (
-    <div className="px-3 pt-4">
-      <h1 className="mb-1 px-2 text-xl font-semibold">{t('review.title')}</h1>
+    <div className="px-4 pt-4">
+      <PageHeader title={t('review.title')} />
       {items.length === 0 ? (
         <Section>
-          <Empty title={t('review.empty')} icon="✅" />
+          <Empty title={t('review.empty')} icon={CircleCheck} />
         </Section>
       ) : (
         <>
-          <p className="mb-4 px-2 text-sm leading-snug text-hint">{t('review.intro')}</p>
+          <p className="mb-4 px-1 text-[14px] leading-snug text-hint">{t('review.intro')}</p>
           {items.map((it) => (
-            <Section key={it.id}>
+            <Section key={it.id} className="mb-3">
               <button onClick={() => go(`/review/${it.id}`)} className="block w-full px-4 py-3 text-left active:bg-bg2">
-                <div className="mb-1 flex justify-between text-[12px] text-hint">
+                <div className="mb-1.5 flex items-center justify-between gap-2 text-[12px] text-hint">
                   <span>
                     {it.sender} · {fullDate(it.receivedAt)}
                   </span>
-                  <span className="rounded-full bg-warn/15 px-2 text-warn">{reasonLabel(it.reason)}</span>
+                  <span className="shrink-0 rounded-full px-2 py-0.5 font-semibold text-warn" style={{ background: 'color-mix(in srgb, var(--birr-warn) 14%, transparent)' }}>{reasonLabel(it.reason)}</span>
                 </div>
-                <p className="line-clamp-3 text-[14px] leading-snug">{it.body}</p>
+                <p className="line-clamp-3 text-[15px] leading-snug">{it.body}</p>
               </button>
             </Section>
           ))}
           <Button
             kind="secondary"
+            icon={RefreshCw}
             className="mb-6 w-full"
             disabled={retry.isPending}
             onClick={() =>
@@ -59,7 +61,7 @@ export function Review() {
               })
             }
           >
-            🔄 {t('review.retry')}
+            {t('review.retry')}
           </Button>
         </>
       )}
@@ -128,12 +130,12 @@ export function ReviewFix({ id }: { id: number }) {
   };
   const mainButton = useMainButton(f ? { text: t('review.save'), onClick: save, enabled: valid, loading: resolve.isPending } : null);
 
-  if (review.isLoading) return <Spinner />;
+  if (review.isLoading) return <div className="px-4"><Spinner /></div>;
   if (!item || !f) return <ErrorState error={{ status: 404 }} />;
   const set = (p: Partial<typeof f>) => setF({ ...f, ...p });
 
   return (
-    <div className="px-3 pt-3">
+    <div className="px-4 pt-3">
       <WebBack onBack={back} />
       <Section title={`${item.sender} · ${fullDate(item.receivedAt)}`}>
         <pre className="whitespace-pre-wrap break-words px-4 py-3 font-sans text-[14px] leading-snug">{item.body}</pre>
@@ -188,6 +190,7 @@ export function ReviewFix({ id }: { id: number }) {
 
       <Button
         kind="danger"
+        icon={Trash2}
         className="mb-8 w-full"
         onClick={() =>
           dismiss.mutate(id, {

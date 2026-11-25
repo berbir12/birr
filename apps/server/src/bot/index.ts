@@ -21,6 +21,7 @@ import {
   type EditableField,
 } from '../services/transactions.js';
 import { ensureUser, type User } from '../services/users.js';
+import { dueBudgetAlerts } from '../services/plan.js';
 import { cancelImport, commitImport, ImportError, previewImport, type ImportSummary } from '../services/importer.js';
 import { transactions } from '../db/schema.js';
 import { and, eq, inArray, sql } from 'drizzle-orm';
@@ -453,6 +454,10 @@ export async function sendOutcomes(
       const what = t ? `${formatEtb(t.amount)}${t.counterpartyName ? ` · ${esc(tidyName(t.counterpartyName))}` : ''}` : 'this message';
       await send(o.restored ? `♻️ Restored ${what} (it was deleted).` : `↺ Already recorded: ${what}.`, { parse_mode: 'HTML' });
     }
+  }
+
+  if (created.length) {
+    for (const msg of await dueBudgetAlerts(db, user)) await send(msg, { parse_mode: 'HTML' });
   }
 
   if (review.length) {

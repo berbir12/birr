@@ -90,6 +90,7 @@ export async function listTransactions(
   const where: SQL[] = [eq(transactions.userId, userId), isNull(transactions.deletedAt)];
   if (f.accountId) where.push(eq(transactions.accountId, f.accountId));
   if (f.categoryId) where.push(eq(transactions.categoryId, f.categoryId));
+  if (f.personId) where.push(eq(transactions.personId, f.personId));
   if (f.direction) where.push(eq(transactions.direction, f.direction));
   if (f.kind) where.push(eq(transactions.kind, f.kind));
   if (f.reconciliation) where.push(eq(transactions.reconciliation, f.reconciliation));

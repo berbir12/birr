@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "recurring_user_match" ON "birr"."recurring_items" USING btree ("user_id","match_key");

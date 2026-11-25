@@ -50,6 +50,7 @@ const ListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
   accountId: id.optional(),
   categoryId: id.optional(),
+  personId: id.optional(),
   direction: z.enum(['in', 'out']).optional(),
   kind: z.string().max(40).optional(),
   minAmount: z.coerce.number().int().min(0).optional(),

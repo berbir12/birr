@@ -6,7 +6,8 @@ import { groupByDay, TxRow } from '../components/TxRow';
 import { useAccounts, useCategories, useDeleteTx, useRestoreTx, useTransactions } from '../data';
 import { fromLocalInput, money, parseEtb } from '../format';
 import { t } from '../i18n';
-import { Button, Chip, Empty, ErrorState, Field, inputClass, Section, Sheet, Spinner, useToast } from '../ui';
+import { Search, SearchX, SlidersHorizontal, TriangleAlert, X } from 'lucide-react';
+import { Button, Chip, Empty, ErrorState, Field, inputClass, PageHeader, Section, Sheet, Spinner, useToast } from '../ui';
 
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
@@ -59,16 +60,27 @@ export function Transactions() {
   const category = cats.data?.find((c) => c.id === filters.categoryId);
 
   return (
-    <div className="pt-3">
-      <div className="sticky top-0 z-10 bg-bg2 px-3 pb-2 pt-1">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder={t('tx.search')}
-          type="search"
-          className="w-full rounded-xl bg-section px-4 py-2.5 text-[16px] outline-none placeholder:text-hint"
-        />
-        <div className="-mx-3 mt-2 flex gap-2 overflow-x-auto px-3">
+    <div className="pt-4">
+      <div className="px-4">
+        <PageHeader title={t('nav.transactions')} />
+      </div>
+      <div className="sticky top-0 z-10 bg-bg2/95 px-4 pb-3 pt-1 backdrop-blur">
+        <div className="card flex items-center gap-2 px-3">
+          <Search size={18} className="shrink-0 text-hint" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={t('tx.search')}
+            type="search"
+            className="w-full bg-transparent py-2.5 text-[16px] outline-none placeholder:text-hint"
+          />
+          {q && (
+            <button onClick={() => setQ('')} aria-label={t('tx.clear')} className="text-hint">
+              <X size={18} />
+            </button>
+          )}
+        </div>
+        <div className="no-scrollbar -mx-4 mt-2.5 flex gap-2 overflow-x-auto px-4">
           <Chip active={!filters.direction} onClick={() => setFilters((f) => ({ ...f, direction: undefined }))}>
             {t('tx.all')}
           </Chip>
@@ -78,38 +90,46 @@ export function Transactions() {
           <Chip active={filters.direction === 'in'} onClick={() => setFilters((f) => ({ ...f, direction: 'in' }))}>
             {t('tx.in')}
           </Chip>
-          {accountName && <Chip active onClick={() => setFilters((f) => ({ ...f, accountId: undefined }))}>{accountName} ✕</Chip>}
-          {category && (
-            <Chip active onClick={() => setFilters((f) => ({ ...f, categoryId: undefined }))}>
-              {category.icon} {category.name} ✕
+          {accountName && (
+            <Chip active onClick={() => setFilters((f) => ({ ...f, accountId: undefined }))}>
+              {accountName} <X size={14} />
             </Chip>
           )}
-          {filters.reconciliation && <Chip active onClick={() => setFilters((f) => ({ ...f, reconciliation: undefined }))}>⚠️ gaps ✕</Chip>}
+          {category && (
+            <Chip active onClick={() => setFilters((f) => ({ ...f, categoryId: undefined }))}>
+              {category.name} <X size={14} />
+            </Chip>
+          )}
+          {filters.reconciliation && (
+            <Chip active onClick={() => setFilters((f) => ({ ...f, reconciliation: undefined }))}>
+              <TriangleAlert size={14} /> gaps <X size={14} />
+            </Chip>
+          )}
           <Chip active={activeCount > 0} onClick={() => setSheet(true)}>
-            ⚙︎ {t('tx.filters')}
+            <SlidersHorizontal size={14} /> {t('tx.filters')}
             {activeCount ? ` (${activeCount})` : ''}
           </Chip>
         </div>
       </div>
 
-      <div className="px-3">
+      <div className="px-4">
         {list.isLoading && <Spinner />}
         {list.error && <ErrorState error={list.error} onRetry={() => void list.refetch()} />}
         {list.data && items.length === 0 && (
           <Section>
-            <Empty title={t('tx.none')} icon="🔎" />
+            <Empty title={t('tx.none')} icon={SearchX} />
           </Section>
         )}
         {groups.map((g) => (
           <section key={g.key} className="mb-3">
-            <div className="flex justify-between px-4 pb-1 pt-2 text-[13px] text-hint">
-              <span className="font-medium uppercase tracking-wide">{g.label}</span>
+            <div className="flex justify-between px-1 pb-1.5 pt-2 text-[13px] text-hint">
+              <span className="font-semibold">{g.label}</span>
               <span className="tabular">
                 {g.net >= 0 ? '+' : '−'}
                 {money(g.net)}
               </span>
             </div>
-            <div className="overflow-hidden rounded-2xl bg-section">
+            <div className="card overflow-hidden">
               {g.items.map((tx) => (
                 <TxRow
                   key={tx.id}
@@ -185,7 +205,7 @@ function FilterSheet({ open, onClose, value, onApply }: { open: boolean; onClose
             ?.filter((c) => !c.archived)
             .map((c) => (
               <Chip key={c.id} active={f.categoryId === c.id} onClick={() => setF({ ...f, categoryId: c.id })}>
-                {c.icon} {c.name}
+                {c.name}
               </Chip>
             ))}
         </div>
