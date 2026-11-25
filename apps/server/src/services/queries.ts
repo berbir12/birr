@@ -189,19 +189,24 @@ export async function summary(db: DB, userId: number, tz: string, now = Date.now
   const elapsed = now - month.start;
   const prevSameSpan = Math.min(prev.start + elapsed, prev.end);
 
-  const [accts, cats, cur, before, budgetRows, recent, reviews, gaps] = await Promise.all([
-    db.select().from(accounts).where(and(eq(accounts.userId, userId), eq(accounts.archived, false))).orderBy(accounts.id),
-    db.select().from(categories).where(eq(categories.userId, userId)),
-    periodTxs(db, userId, month.start, month.end),
-    periodTxs(db, userId, prev.start, prevSameSpan),
-    db.select().from(budgets).where(eq(budgets.userId, userId)),
-    listTransactions(db, userId, { limit: 8 }),
-    reviewCount(db, userId),
-    db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(transactions)
-      .where(and(eq(transactions.userId, userId), eq(transactions.reconciliation, 'gap'), isNull(transactions.deletedAt))),
-  ]);
+  // Sequential on purpose. On Vercel the client holds one connection; parallel queries get pipelined
+  // on it, and Supabase's transaction pooler (Supavisor) never answers a pipelined batch — the
+  // request hung until the 30 s function timeout. Each query here takes a few ms.
+  const accts = await db
+    .select()
+    .from(accounts)
+    .where(and(eq(accounts.userId, userId), eq(accounts.archived, false)))
+    .orderBy(accounts.id);
+  const cats = await db.select().from(categories).where(eq(categories.userId, userId));
+  const cur = await periodTxs(db, userId, month.start, month.end);
+  const before = await periodTxs(db, userId, prev.start, prevSameSpan);
+  const budgetRows = await db.select().from(budgets).where(eq(budgets.userId, userId));
+  const recent = await listTransactions(db, userId, { limit: 8 });
+  const reviews = await reviewCount(db, userId);
+  const gaps = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(transactions)
+    .where(and(eq(transactions.userId, userId), eq(transactions.reconciliation, 'gap'), isNull(transactions.deletedAt)));
 
   const t = totals(cur);
   const p = totals(before);

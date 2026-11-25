@@ -33,7 +33,9 @@ export async function openDb(url: string | undefined): Promise<DbHandle> {
     const local = /@(localhost|127\.0\.0\.1)[:/]/.test(url);
     const client = postgres(url, {
       prepare: false,
-      max: process.env.VERCEL ? 1 : 5,
+      // Never 1: concurrent queries on one connection get pipelined, and Supabase's transaction
+      // pooler (Supavisor) never answers a pipelined batch — requests hang until the function times out.
+      max: 10,
       idle_timeout: 20,
       connect_timeout: 10,
       ssl: local ? false : 'require',

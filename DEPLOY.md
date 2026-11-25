@@ -10,7 +10,7 @@ Birr runs entirely on free tiers, with nothing running at home:
 
 ```
 iPhone Shortcut ─► https://<project>.vercel.app/ingest/sms ┐
-Telegram ────────► https://<project>.vercel.app/telegram/…  ├─► Vercel function (fra1) ─► Supabase Postgres (Frankfurt)
+Telegram ────────► https://<project>.vercel.app/telegram/…  ├─► Vercel function (dub1) ─► Supabase Postgres (eu-west-1)
 Mini App ────────► https://<project>.vercel.app/             ┘
 ```
 
@@ -36,7 +36,9 @@ the Telegram webhook. Preview builds touch neither.
 ## 2. Supabase
 
 1. Sign up at https://supabase.com → **New project**.
-   - **Region:** Central EU (Frankfurt), next to the Vercel function.
+   - **Region:** West EU (Ireland, eu-west-1). The Vercel function runs in Dublin (dub1) right next to it;
+     every query is a round trip, so keep the two together. If you pick another region, change `regions`
+     in `scripts/build-vercel.mjs` and **Settings → Functions → Function Region** in Vercel to match.
    - **Database password:** generate a strong one and save it in your password manager.
 2. Once it's ready, click **Connect** (top of the dashboard) → **Transaction pooler**. Copy the URI:
 

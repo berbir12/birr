@@ -64,7 +64,8 @@ writeFileSync(
       shouldAddHelpers: false,
       supportsResponseStreaming: true,
       maxDuration: 30,
-      regions: ['fra1'],
+      // Dublin: next to the Supabase database (eu-west-1). Every query is a round trip, so this matters.
+      regions: ['dub1'],
     },
     null,
     2,
