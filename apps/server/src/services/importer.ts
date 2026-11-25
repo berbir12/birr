@@ -57,6 +57,22 @@ export async function previewImport(
   now = Date.now(),
 ): Promise<{ importId: number; summary: ImportSummary }> {
   const { format, entries } = parseImportFile(fileName, content);
+  return previewEntries(deps, userId, fileName, format, entries, entries.length, now);
+}
+
+/**
+ * Same as previewImport, for entries already read (and usually pre-filtered) by the Mini App in the
+ * browser, so a large phone backup never has to be uploaded whole. `inFile` is the count before filtering.
+ */
+export async function previewEntries(
+  deps: IngestDeps,
+  userId: number,
+  fileName: string,
+  format: ImportFormat,
+  entries: ReturnType<typeof parseImportFile>['entries'],
+  inFile: number,
+  now = Date.now(),
+): Promise<{ importId: number; summary: ImportSummary }> {
   const inputs = relevantInputs(entries, now);
   if (inputs.length > MAX_IMPORT_MESSAGES) {
     throw new ImportError(`That file has ${inputs.length} telebirr/CBE messages; the limit per import is ${MAX_IMPORT_MESSAGES}. Split it up.`);
@@ -75,7 +91,7 @@ export async function previewImport(
   const summary: ImportSummary = {
     fileName,
     format,
-    inFile: entries.length,
+    inFile,
     relevant: inputs.length,
     bySource,
     created: counts.created,

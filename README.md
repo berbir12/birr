@@ -39,6 +39,19 @@ pnpm test
 
 With `DATABASE_URL` unset, data lives in `data/pglite/` (gitignored). Migrations run on start.
 
+### See the app with fake data, in a normal browser
+
+```sh
+# in .env: NODE_ENV=development, DEV_AUTH_TELEGRAM_ID=<one of ALLOWED_TELEGRAM_IDS>
+pnpm seed                               # ~3 months of realistic fake telebirr/CBE SMS (add --reset to redo)
+pnpm preview                            # API on :8787 with the dev login; the bot is NOT started
+pnpm --filter @birr/miniapp dev         # then open http://localhost:5173
+```
+
+The seed writes SMS in the real formats and runs them through the real pipeline, so categories, rules,
+budgets, one deliberate "missing SMS" gap and internal transfers all show up. It refuses to run against a
+`postgres://` database, so fake data can't reach production.
+
 Telegram only opens Mini Apps over HTTPS. To try the Mini App inside Telegram during development,
 tunnel the Vite port (it proxies `/api` and `/ingest` to the server):
 

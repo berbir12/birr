@@ -56,6 +56,8 @@ describe('balance reconciliation', () => {
     const gap = (await rows()).filter((x) => x.reconciliation === 'gap');
     expect(gap).toHaveLength(1);
     expect(gap[0]).toMatchObject({ amount: 1500000, reconciliationDelta: 17369700 }); // c05 is where it shows
+    const { listTransactions } = await import('./queries.js');
+    expect((await listTransactions(t.db, userId, { reconciliation: 'gap' })).items.map((x) => x.id)).toEqual([gap[0]!.id]);
 
     // The missing SMS turns up later (pasted), timed between the two.
     await ingestBatch(deps(), userId, 'bot', [{ body: missing, receivedAt: T0 + 5 * MIN }]);

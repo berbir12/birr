@@ -45,6 +45,13 @@ const schema = z.object({
   INITDATA_MAX_AGE_SECONDS: z.coerce.number().int().positive().default(86_400),
   TZ: z.string().default('Africa/Addis_Ababa'),
 
+  /**
+   * Local development only: Mini App requests without Telegram initData are treated as this
+   * (allowlisted) Telegram user, so the app can be opened in a normal browser. Refused outside
+   * NODE_ENV=development and on Vercel.
+   */
+  DEV_AUTH_TELEGRAM_ID: z.coerce.number().int().positive().optional(),
+
   INGEST_RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(30),
 
   LLM_FALLBACK_ENABLED: bool,
@@ -76,6 +83,14 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   }
   if (env.LLM_FALLBACK_ENABLED && !env.ANTHROPIC_API_KEY) {
     throw new Error('ANTHROPIC_API_KEY is required when LLM_FALLBACK_ENABLED=true');
+  }
+  if (env.DEV_AUTH_TELEGRAM_ID !== undefined) {
+    if (env.NODE_ENV !== 'development' || cleaned.VERCEL) {
+      throw new Error('DEV_AUTH_TELEGRAM_ID is for local development only; remove it (NODE_ENV must be development, not on Vercel).');
+    }
+    if (!env.ALLOWED_TELEGRAM_IDS.includes(env.DEV_AUTH_TELEGRAM_ID)) {
+      throw new Error('DEV_AUTH_TELEGRAM_ID must also be in ALLOWED_TELEGRAM_IDS.');
+    }
   }
   if (env.ALLOWED_TELEGRAM_IDS.length === 0) {
     console.warn('[env] ALLOWED_TELEGRAM_IDS is empty: every user will be rejected.');

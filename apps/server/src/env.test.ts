@@ -25,6 +25,13 @@ describe('loadEnv', () => {
     expect(() => loadEnv({ ...base, DATA_ENCRYPTION_KEY: 'short' })).toThrow(/DATA_ENCRYPTION_KEY/);
   });
 
+  it('dev browser login is refused outside local development', () => {
+    expect(loadEnv({ ...base, NODE_ENV: 'development', DEV_AUTH_TELEGRAM_ID: '42' }).DEV_AUTH_TELEGRAM_ID).toBe(42);
+    expect(() => loadEnv({ ...base, NODE_ENV: 'production', DEV_AUTH_TELEGRAM_ID: '42' })).toThrow(/local development only/);
+    expect(() => loadEnv({ ...base, NODE_ENV: 'development', VERCEL: '1', DEV_AUTH_TELEGRAM_ID: '42' })).toThrow(/local development only/);
+    expect(() => loadEnv({ ...base, NODE_ENV: 'development', DEV_AUTH_TELEGRAM_ID: '7' })).toThrow(/ALLOWED_TELEGRAM_IDS/);
+  });
+
   it('requires an API key when the LLM fallback is on', () => {
     expect(() => loadEnv({ ...base, LLM_FALLBACK_ENABLED: 'true' })).toThrow(/ANTHROPIC_API_KEY/);
   });

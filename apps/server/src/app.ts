@@ -55,6 +55,11 @@ export function createApp(deps: AppDeps) {
   api.use('*', async (c, next) => {
     const header = c.req.header('Authorization') ?? '';
     const [scheme, initData] = header.split(' ', 2);
+    if (!header && env.DEV_AUTH_TELEGRAM_ID !== undefined && env.NODE_ENV === 'development') {
+      // Local browser preview (validated in loadEnv: development only, allowlisted id).
+      c.set('user', await ensureUser(db, env.DEV_AUTH_TELEGRAM_ID, 'Dev'));
+      return next();
+    }
     if (scheme !== 'tma' || !initData) return c.json({ error: 'unauthorized' }, 401);
 
     const result = validateInitData(initData, env.BOT_TOKEN, env.INITDATA_MAX_AGE_SECONDS);
