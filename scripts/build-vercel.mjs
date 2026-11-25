@@ -19,6 +19,12 @@ const fn = join(out, 'functions', 'api.func');
 const isProd = process.env.VERCEL_ENV === 'production' || process.env.BIRR_PROD_SETUP === '1';
 const run = (cmd) => execSync(cmd, { cwd: root, stdio: 'inherit' });
 
+if (isProd) {
+  // Check every production setting before doing anything, so a misconfigured deploy fails with one clear list.
+  console.log('==> Checking production settings');
+  run('pnpm --filter @birr/server exec tsx src/setup-telegram.ts --check');
+}
+
 rmSync(out, { recursive: true, force: true });
 mkdirSync(fn, { recursive: true });
 
