@@ -6,13 +6,13 @@
  *
  * Idempotent: the same SMS ingested twice returns `duplicate` and creates nothing.
  */
+import { createHmac } from 'node:crypto';
 import { categorize, orderByBalanceChain, type Rule } from '@birr/core';
 import { parseSms } from '@birr/parser';
 import { tidyName, type IngestChannel, type ParsedSms, type Source } from '@birr/shared';
 import { and, eq, sql } from 'drizzle-orm';
-import { createHmac } from 'node:crypto';
 import { encrypt, keyedHash } from '../crypto.js';
-import type { DB } from '../db/client.js';
+import type { DB, Tx } from '../db/client.js';
 import { accounts, categories, people, rawMessages, rules, transactions } from '../db/schema.js';
 
 export interface IngestDeps {
@@ -50,12 +50,7 @@ const normBody = (s: string) => s.replace(/\s+/g, ' ').trim();
  * Dedupe key: the transaction reference when the SMS has one; otherwise
  * sender + normalised body (+ timestamp for webhook deliveries, where it is the real SMS time).
  */
-export function dedupeKey(
-  key: Buffer,
-  channel: IngestChannel,
-  input: IngestInput,
-  parsed: ParsedSms | null,
-): string {
+export function dedupeKey(key: Buffer, channel: IngestChannel, input: IngestInput, parsed: ParsedSms | null): string {
   if (parsed?.reference) return keyedHash(`ref|${parsed.source}|${parsed.reference}`, key);
   const ts = parsed?.occurredAt ?? (channel === 'webhook' ? String(input.receivedAt) : '');
   return keyedHash(`raw|${parsed?.source ?? input.sender ?? ''}|${normBody(input.body)}|${ts}`, key);
@@ -84,15 +79,13 @@ function assignTimes(items: Array<{ input: IngestInput; parsed: ParsedSms }>): A
   return out;
 }
 
-type Tx = Parameters<Parameters<DB['transaction']>[0]>[0];
-
-function resolveAccount(tx: Tx, userId: number, source: Source, maskedId: string | null): number {
+async function resolveAccount(tx: Tx, userId: number, source: Source, maskedId: string | null): Promise<number> {
   const type = source; // 'telebirr' | 'cbe' map 1:1 to account types
-  const existing = tx
+  const existing = await tx
     .select()
     .from(accounts)
     .where(and(eq(accounts.userId, userId), eq(accounts.type, type)))
-    .all();
+    .orderBy(accounts.id);
 
   // telebirr: one wallet per user. CBE: one account per masked number.
   const match =
@@ -101,37 +94,36 @@ function resolveAccount(tx: Tx, userId: number, source: Source, maskedId: string
       : (existing.find((a) => a.maskedId === maskedId) ?? (maskedId === null ? existing[0] : undefined));
 
   if (match) {
-    if (!match.maskedId && maskedId) tx.update(accounts).set({ maskedId }).where(eq(accounts.id, match.id)).run();
+    if (!match.maskedId && maskedId) await tx.update(accounts).set({ maskedId }).where(eq(accounts.id, match.id));
     return match.id;
   }
   const name = type === 'telebirr' ? 'telebirr' : `CBE ${maskedId ?? ''}`.trim();
-  return tx.insert(accounts).values({ userId, type, name, maskedId }).returning({ id: accounts.id }).get().id;
+  const [created] = await tx.insert(accounts).values({ userId, type, name, maskedId }).returning({ id: accounts.id });
+  return created!.id;
 }
 
 /** People are only the humans/businesses I pay or get paid by — not agents or banks. */
-function resolvePerson(tx: Tx, userId: number, p: ParsedSms): number | null {
+async function resolvePerson(tx: Tx, userId: number, p: ParsedSms): Promise<number | null> {
   if (!p.counterpartyName || (p.kind !== 'transfer_out' && p.kind !== 'transfer_in')) return null;
   const display = tidyName(p.counterpartyName);
-  const lower = display.toLowerCase();
-  const found = tx
+  const found = await tx
     .select({ id: people.id, maskedId: people.maskedId })
     .from(people)
-    .where(and(eq(people.userId, userId), sql`lower(${people.displayName}) = ${lower}`))
-    .all();
+    .where(and(eq(people.userId, userId), sql`lower(${people.displayName}) = ${display.toLowerCase()}`));
   // Same name and (same masked id, or one of them unknown). Last-4 alone collides too easily.
   const hit = found.find((f) => !f.maskedId || !p.counterpartyMaskedId || f.maskedId === p.counterpartyMaskedId);
   if (hit) return hit.id;
-  return tx
+  const [created] = await tx
     .insert(people)
     .values({ userId, displayName: display, maskedId: p.counterpartyMaskedId })
-    .returning({ id: people.id })
-    .get().id;
+    .returning({ id: people.id });
+  return created!.id;
 }
 
-export function loadRules(db: DB | Tx, userId: number): { rules: Rule[]; categoryIds: Map<string, number> } {
-  const cats = db.select({ id: categories.id, key: categories.key }).from(categories).where(eq(categories.userId, userId)).all();
+export async function loadRules(db: DB, userId: number): Promise<{ rules: Rule[]; categoryIds: Map<string, number> }> {
+  const cats = await db.select({ id: categories.id, key: categories.key }).from(categories).where(eq(categories.userId, userId));
   const keyById = new Map(cats.map((c) => [c.id, c.key]));
-  const rows = db.select().from(rules).where(eq(rules.userId, userId)).all();
+  const rows = await db.select().from(rules).where(eq(rules.userId, userId));
   return {
     rules: rows.flatMap((r) => {
       const key = keyById.get(r.categoryId);
@@ -141,12 +133,12 @@ export function loadRules(db: DB | Tx, userId: number): { rules: Rule[]; categor
   };
 }
 
-export function ingestBatch(
+export async function ingestBatch(
   deps: IngestDeps,
   userId: number,
   channel: IngestChannel,
   inputs: readonly IngestInput[],
-): IngestOutcome[] {
+): Promise<IngestOutcome[]> {
   const { db, encKey } = deps;
   const hk = hashKey(encKey);
   const outcomes: IngestOutcome[] = new Array(inputs.length);
@@ -163,23 +155,25 @@ export function ingestBatch(
 
   const times = assignTimes(parsedItems);
 
-  db.transaction((tx) => {
-    const { rules: userRules, categoryIds } = loadRules(tx, userId);
+  await db.transaction(async (tx) => {
+    const { rules: userRules, categoryIds } = await loadRules(tx, userId);
 
-    const findRaw = (key: string) =>
-      tx
-        .select({ id: rawMessages.id, status: rawMessages.status })
-        .from(rawMessages)
-        .where(and(eq(rawMessages.userId, userId), eq(rawMessages.dedupeKey, key)))
-        .get();
+    const findRaw = async (key: string) =>
+      (
+        await tx
+          .select({ id: rawMessages.id, status: rawMessages.status })
+          .from(rawMessages)
+          .where(and(eq(rawMessages.userId, userId), eq(rawMessages.dedupeKey, key)))
+          .limit(1)
+      )[0];
 
-    const insertRaw = (
+    const insertRaw = async (
       input: IngestInput,
       key: string,
       status: 'parsed' | 'review',
       extra: Partial<typeof rawMessages.$inferInsert> = {},
-    ) =>
-      tx
+    ) => {
+      const [row] = await tx
         .insert(rawMessages)
         .values({
           userId,
@@ -191,57 +185,59 @@ export function ingestBatch(
           status,
           ...extra,
         })
-        .returning({ id: rawMessages.id })
-        .get().id;
+        .returning({ id: rawMessages.id });
+      return row!.id;
+    };
 
     for (const { i, input, reason } of unparsed) {
       const key = dedupeKey(hk, channel, input, null);
-      const existing = findRaw(key);
+      const existing = await findRaw(key);
       outcomes[i] = existing
         ? { status: 'review', rawId: existing.id, reason, duplicate: true }
-        : { status: 'review', rawId: insertRaw(input, key, 'review', { parseError: reason }), reason, duplicate: false };
+        : { status: 'review', rawId: await insertRaw(input, key, 'review', { parseError: reason }), reason, duplicate: false };
     }
 
-    parsedItems.forEach(({ i, input, parsed }, n) => {
+    for (let n = 0; n < parsedItems.length; n++) {
+      const { i, input, parsed } = parsedItems[n]!;
       const key = dedupeKey(hk, channel, input, parsed);
       const sender = input.sender ?? parsed.source;
-      const existing = findRaw(key);
+      const existing = await findRaw(key);
       if (existing) {
-        const t = tx
+        const [t] = await tx
           .select({ id: transactions.id, deletedAt: transactions.deletedAt })
           .from(transactions)
           .where(eq(transactions.rawMessageId, existing.id))
-          .get();
-        if (t?.deletedAt) tx.update(transactions).set({ deletedAt: null }).where(eq(transactions.id, t.id)).run();
+          .limit(1);
+        if (t?.deletedAt) await tx.update(transactions).set({ deletedAt: null }).where(eq(transactions.id, t.id));
         outcomes[i] =
           existing.status === 'review' && !t
             ? { status: 'review', rawId: existing.id, reason: 'low_confidence', duplicate: true }
             : { status: 'duplicate', txId: t?.id ?? null, rawId: existing.id, restored: Boolean(t?.deletedAt) };
-        return;
+        continue;
       }
 
       const { raw: _raw, ...candidate } = parsed;
       if (parsed.confidence < MIN_CONFIDENCE) {
-        const rawId = insertRaw({ ...input, sender }, key, 'review', {
+        const rawId = await insertRaw({ ...input, sender }, key, 'review', {
           template: parsed.template,
           confidence: parsed.confidence,
           parseError: parsed.warnings.join(',') || 'low_confidence',
           candidate,
         });
         outcomes[i] = { status: 'review', rawId, reason: 'low_confidence', duplicate: false };
-        return;
+        continue;
       }
 
-      const rawId = insertRaw({ ...input, sender }, key, 'parsed', {
+      const rawId = await insertRaw({ ...input, sender }, key, 'parsed', {
         template: parsed.template,
         confidence: parsed.confidence,
       });
-      const accountId = resolveAccount(tx, userId, parsed.source, parsed.accountMaskedId);
-      const personId = resolvePerson(tx, userId, parsed);
+      const accountId = await resolveAccount(tx, userId, parsed.source, parsed.accountMaskedId);
+      const personId = await resolvePerson(tx, userId, parsed);
       const { categoryKey } = categorize(parsed, userRules);
       const { at, estimated } = times[n]!;
 
-      const txId = tx
+      const [created] = await tx
         .insert(transactions)
         .values({
           userId,
@@ -266,30 +262,26 @@ export function ingestBatch(
           categoryId: categoryIds.get(categoryKey) ?? categoryIds.get('other') ?? null,
           confidence: parsed.confidence,
         })
-        .returning({ id: transactions.id })
-        .get().id;
+        .returning({ id: transactions.id });
 
       if (parsed.balanceAfter !== null) {
-        tx.update(accounts)
+        await tx
+          .update(accounts)
           .set({ balance: parsed.balanceAfter, balanceAt: at })
-          .where(and(eq(accounts.id, accountId), sql`coalesce(${accounts.balanceAt}, 0) <= ${at}`))
-          .run();
+          .where(and(eq(accounts.id, accountId), sql`coalesce(${accounts.balanceAt}, 0) <= ${at}`));
       }
-      outcomes[i] = { status: 'created', txId, rawId };
-    });
+      outcomes[i] = { status: 'created', txId: created!.id, rawId };
+    }
   });
 
   return outcomes;
 }
 
 /** Number of messages waiting in the review queue. */
-export function reviewCount(db: DB, userId: number): number {
-  return (
-    db
-      .select({ n: sql<number>`count(*)` })
-      .from(rawMessages)
-      .where(and(eq(rawMessages.userId, userId), eq(rawMessages.status, 'review')))
-      .get()?.n ?? 0
-  );
+export async function reviewCount(db: DB, userId: number): Promise<number> {
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(rawMessages)
+    .where(and(eq(rawMessages.userId, userId), eq(rawMessages.status, 'review')));
+  return row?.n ?? 0;
 }
-

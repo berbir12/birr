@@ -1,11 +1,12 @@
 import { parseAmount, splitMessages } from '@birr/parser';
 import { formatEtb, tidyName } from '@birr/shared';
 import { Api, Bot, InlineKeyboard, type Context } from 'grammy';
-import { revokeIngestSecret, rotateIngestSecret } from '../services/ingestSecret.js';
 import { isAllowed, REJECTION_MESSAGE } from '../auth/allowlist.js';
 import type { DB } from '../db/client.js';
 import type { Env } from '../env.js';
+import { clearPendingEdit, setPendingEdit, takePendingEdit, type PendingEdit } from '../services/botState.js';
 import { ingestBatch, reviewCount, type IngestOutcome } from '../services/ingest.js';
+import { revokeIngestSecret, rotateIngestSecret } from '../services/ingestSecret.js';
 import {
   confirmTx,
   createRuleFromTx,
@@ -41,15 +42,6 @@ export interface BotDeps {
 
 /** Cards sent individually per paste; the rest are summarised. */
 const MAX_CARDS = 10;
-const PENDING_EDIT_TTL_MS = 5 * 60 * 1000;
-
-interface PendingEdit {
-  txId: number;
-  field: EditableField;
-  chatId: number;
-  cardMessageId: number;
-  expires: number;
-}
 
 const FIELD_PROMPTS: Record<EditableField, string> = {
   amount: 'Send the correct amount (e.g. 1,250.50).',
@@ -60,7 +52,6 @@ const FIELD_PROMPTS: Record<EditableField, string> = {
 export function createBot(deps: BotDeps, botConfig?: ConstructorParameters<typeof Bot<BotContext>>[1]) {
   const { db, env, encKey } = deps;
   const bot = new Bot<BotContext>(env.BOT_TOKEN, botConfig);
-  const pending = new Map<number, PendingEdit>();
 
   const tzOf = (ctx: BotContext) => ctx.user.timezone;
 
@@ -73,7 +64,7 @@ export function createBot(deps: BotDeps, botConfig?: ConstructorParameters<typeo
       return;
     }
     if (ctx.chat && ctx.chat.type !== 'private') return;
-    ctx.user = ensureUser(db, from!.id, from!.first_name);
+    ctx.user = await ensureUser(db, from!.id, from!.first_name);
     await next();
   });
 
@@ -86,19 +77,19 @@ export function createBot(deps: BotDeps, botConfig?: ConstructorParameters<typeo
         'Forward or paste your <b>telebirr (127)</b> and <b>CBE</b> SMS here — one or many at once — and I’ll record them.',
         'Each one gets a card where you can fix the category, edit or delete it.',
         '',
-        '/undo reverts your last action.',
+        '/connect sets up automatic forwarding from your phone. /undo reverts your last action.',
       ].join('\n'),
       { reply_markup: kb, parse_mode: 'HTML' },
     );
   });
 
   bot.command('undo', async (ctx) => {
-    const what = undoLast(db, ctx.user.id);
+    const what = await undoLast(db, ctx.user.id);
     await ctx.reply(what ? `↩️ Undone: ${what}.` : 'Nothing to undo from the last 24 hours.');
   });
 
   bot.command('connect', async (ctx) => {
-    const secret = rotateIngestSecret(db, encKey, ctx.user.id);
+    const secret = await rotateIngestSecret(db, encKey, ctx.user.id);
     const url = `${env.PUBLIC_URL}/ingest/sms`;
     const lines = [
       '🔗 <b>Automatic SMS forwarding</b>',
@@ -113,19 +104,19 @@ export function createBot(deps: BotDeps, botConfig?: ConstructorParameters<typeo
       '4. Request Body <b>JSON</b>: <code>body</code> = Shortcut Input › Content, <code>sender</code> = Shortcut Input › Sender',
       '5. Repeat with Message Contains: <code>CBE</code>',
       '',
-      'Full guide with screenshots-level detail: SETUP.md in the repo.',
+      'Full step-by-step guide: SETUP.md in the repo.',
       '',
       '⚠️ Anyone with this token can add transactions to your account. Keep it private and delete this message once set up. ' +
         'Running /connect again issues a new token (the old one keeps working for 1 hour). /disconnect revokes it.',
     ];
     if (!env.PUBLIC_URL.startsWith('https://')) {
-      lines.push('', `ℹ️ PUBLIC_URL is ${esc(env.PUBLIC_URL)} — your phone can’t reach that. Deploy, or use a tunnel and set PUBLIC_URL.`);
+      lines.push('', `ℹ️ PUBLIC_URL is ${esc(env.PUBLIC_URL)} — your phone can’t reach that. Deploy first and set PUBLIC_URL.`);
     }
     await ctx.reply(lines.join('\n'), { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
   });
 
   bot.command('disconnect', async (ctx) => {
-    revokeIngestSecret(db, ctx.user.id);
+    await revokeIngestSecret(db, ctx.user.id);
     await ctx.reply('🔌 Forwarding token revoked. Your phone automation will stop working until you run /connect again.');
   });
 
@@ -134,29 +125,19 @@ export function createBot(deps: BotDeps, botConfig?: ConstructorParameters<typeo
     const text = ctx.message.text;
     if (text.startsWith('/')) return; // unknown command
 
-    const p = pending.get(ctx.user.id);
     const looksLikeSms = /^\s*Dear\s/i.test(text);
-    if (p && p.expires > Date.now() && !looksLikeSms) {
-      pending.delete(ctx.user.id);
+    const p = await takePendingEdit(db, ctx.user.id);
+    if (p && !looksLikeSms) {
       await applyEdit(ctx, p, text);
       return;
     }
-    pending.delete(ctx.user.id);
 
     const parts = splitMessages(text);
     const now = Date.now();
-    const outcomes = ingestBatch({ db, encKey }, ctx.user.id, 'bot', parts.map((body) => ({ body, receivedAt: now })));
-    logIngest(ctx.user.id, outcomes);
+    const outcomes = await ingestBatch({ db, encKey }, ctx.user.id, 'bot', parts.map((body) => ({ body, receivedAt: now })));
+    await logIngest(db, ctx.user.id, outcomes);
     await sendOutcomes(ctx.api, deps, ctx.user, ctx.chat.id, outcomes, 'paste');
   });
-
-  function logIngest(userId: number, outcomes: IngestOutcome[]) {
-    const txIds = outcomes.flatMap((o) => (o.status === 'created' ? [o.txId] : []));
-    const rawIds = outcomes.flatMap((o) =>
-      o.status === 'created' || (o.status === 'review' && !o.duplicate) ? [o.rawId] : [],
-    );
-    if (txIds.length || rawIds.length) logAction(db, userId, { action: 'ingest', payload: { txIds, rawIds } });
-  }
 
   async function applyEdit(ctx: BotContext, p: PendingEdit, text: string) {
     let value: string | number = text;
@@ -168,8 +149,8 @@ export function createBot(deps: BotDeps, botConfig?: ConstructorParameters<typeo
       }
       value = cents;
     }
-    if (!editTx(db, ctx.user.id, p.txId, p.field, value)) return;
-    const t = getTx(db, ctx.user.id, p.txId)!;
+    if (!(await editTx(db, ctx.user.id, p.txId, p.field, value))) return;
+    const t = (await getTx(db, ctx.user.id, p.txId))!;
     await ctx.api
       .editMessageText(p.chatId, p.cardMessageId, cardText(t, tzOf(ctx)), {
         parse_mode: 'HTML',
@@ -185,11 +166,11 @@ export function createBot(deps: BotDeps, botConfig?: ConstructorParameters<typeo
     const txId = Number(idStr);
     const uid = ctx.user.id;
     const tz = tzOf(ctx);
-    const t = getTx(db, uid, txId);
+    const t = await getTx(db, uid, txId);
     if (!t) return ctx.answerCallbackQuery({ text: 'Transaction not found.' });
 
     const redraw = async (footer?: string, kb?: InlineKeyboard) => {
-      const fresh = getTx(db, uid, txId)!;
+      const fresh = (await getTx(db, uid, txId))!;
       await ctx
         .editMessageText(cardText(fresh, tz, footer), { parse_mode: 'HTML', reply_markup: kb ?? mainKeyboard(txId) })
         .catch(() => {}); // "message is not modified" is fine
@@ -197,7 +178,7 @@ export function createBot(deps: BotDeps, botConfig?: ConstructorParameters<typeo
 
     switch (verb) {
       case 'ok':
-        confirmTx(db, uid, txId);
+        await confirmTx(db, uid, txId);
         await redraw(undefined, confirmedKeyboard(txId));
         return ctx.answerCallbackQuery({ text: 'Saved ✅' });
 
@@ -207,27 +188,26 @@ export function createBot(deps: BotDeps, botConfig?: ConstructorParameters<typeo
 
       case 'ef': {
         const field: EditableField = arg === 'amount' ? 'amount' : arg === 'name' ? 'counterpartyName' : 'note';
-        pending.set(uid, {
+        await setPendingEdit(db, uid, {
           txId,
           field,
           chatId: ctx.chat!.id,
           cardMessageId: ctx.callbackQuery.message!.message_id,
-          expires: Date.now() + PENDING_EDIT_TTL_MS,
         });
         await ctx.reply(FIELD_PROMPTS[field], { reply_markup: { force_reply: true, selective: true } });
         return ctx.answerCallbackQuery();
       }
 
       case 'cat': {
-        const cats = listCategories(db, uid);
+        const cats = await listCategories(db, uid);
         await ctx.editMessageReplyMarkup({ reply_markup: categoryKeyboard(txId, cats, t.categoryId) }).catch(() => {});
         return ctx.answerCallbackQuery();
       }
 
       case 'sc': {
         const catId = Number(arg);
-        if (!setCategory(db, uid, txId, catId)) return ctx.answerCallbackQuery({ text: 'Unknown category.' });
-        const fresh = getTx(db, uid, txId)!;
+        if (!(await setCategory(db, uid, txId, catId))) return ctx.answerCallbackQuery({ text: 'Unknown category.' });
+        const fresh = (await getTx(db, uid, txId))!;
         if (fresh.counterpartyName) {
           const q = `Always categorize <b>${esc(tidyName(fresh.counterpartyName))}</b> as <b>${esc(fresh.categoryName ?? '')}</b>?`;
           await redraw(q, ruleKeyboard(txId, catId));
@@ -238,7 +218,7 @@ export function createBot(deps: BotDeps, botConfig?: ConstructorParameters<typeo
       }
 
       case 'ru': {
-        const res = createRuleFromTx(db, uid, txId, Number(arg));
+        const res = await createRuleFromTx(db, uid, txId, Number(arg));
         await redraw(undefined, confirmedKeyboard(txId));
         return ctx.answerCallbackQuery({
           text: res
@@ -252,12 +232,13 @@ export function createBot(deps: BotDeps, botConfig?: ConstructorParameters<typeo
         return ctx.answerCallbackQuery();
 
       case 'del':
-        softDelete(db, uid, txId);
+        await clearPendingEdit(db, uid);
+        await softDelete(db, uid, txId);
         await redraw(undefined, deletedKeyboard(txId));
         return ctx.answerCallbackQuery({ text: 'Deleted 🗑' });
 
       case 'ud':
-        restore(db, uid, txId);
+        await restore(db, uid, txId);
         await redraw();
         return ctx.answerCallbackQuery({ text: 'Restored' });
 
@@ -270,9 +251,11 @@ export function createBot(deps: BotDeps, botConfig?: ConstructorParameters<typeo
   bot.on('callback_query:data', (ctx) => ctx.answerCallbackQuery({ text: 'This button has expired.' }));
 
   bot.catch((err) => {
-    // Never log message bodies: they contain financial data.
-    const e = err.error;
-    console.error('[bot] error in update', err.ctx.update.update_id, e instanceof Error ? e.message : 'unknown error');
+    // Never log messages verbatim: SMS text and DB errors (which embed query parameters such as
+    // amounts and names) are financial data. Log only the error class and code.
+    const e = err.error as (Error & { code?: string; cause?: { code?: string } }) | undefined;
+    const code = e?.code ?? e?.cause?.code ?? '';
+    console.error(`[bot] update ${err.ctx.update.update_id} failed: ${e?.name ?? 'Error'}${code ? ` (${code})` : ''}`);
   });
 
   return bot;
@@ -284,6 +267,13 @@ export const BOT_COMMANDS = [
   { command: 'connect', description: 'Set up automatic SMS forwarding' },
   { command: 'disconnect', description: 'Stop accepting forwarded SMS' },
 ];
+
+/** Records an ingest in the action log so /undo can remove it. */
+export async function logIngest(db: DB, userId: number, outcomes: IngestOutcome[]): Promise<void> {
+  const txIds = outcomes.flatMap((o) => (o.status === 'created' ? [o.txId] : []));
+  const rawIds = outcomes.flatMap((o) => (o.status === 'created' || (o.status === 'review' && !o.duplicate) ? [o.rawId] : []));
+  if (txIds.length || rawIds.length) await logAction(db, userId, { action: 'ingest', payload: { txIds, rawIds } });
+}
 
 /**
  * Replies to an ingest: a summary for batches, a card per new transaction, notes for duplicates
@@ -323,7 +313,7 @@ export async function sendOutcomes(
   }
 
   for (const o of created.slice(0, MAX_CARDS)) {
-    const t = getTx(db, user.id, o.txId)!;
+    const t = (await getTx(db, user.id, o.txId))!;
     await send(cardText(t, user.timezone), { parse_mode: 'HTML', reply_markup: mainKeyboard(t.id) });
   }
   if (created.length > MAX_CARDS) {
@@ -333,7 +323,7 @@ export async function sendOutcomes(
   if (mode === 'paste' && outcomes.length <= 3) {
     for (const o of dupes) {
       if (o.status !== 'duplicate') continue;
-      const t = o.txId ? getTx(db, user.id, o.txId) : undefined;
+      const t = o.txId ? await getTx(db, user.id, o.txId) : undefined;
       const what = t ? `${formatEtb(t.amount)}${t.counterpartyName ? ` · ${esc(tidyName(t.counterpartyName))}` : ''}` : 'this message';
       await send(o.restored ? `♻️ Restored ${what} (it was deleted).` : `↺ Already recorded: ${what}.`, { parse_mode: 'HTML' });
     }
@@ -341,7 +331,7 @@ export async function sendOutcomes(
 
   if (review.length) {
     const lowConf = review.some((o) => o.status === 'review' && o.reason === 'low_confidence');
-    const n = reviewCount(db, user.id);
+    const n = await reviewCount(db, user.id);
     await send(
       (lowConf
         ? '⚠️ I read a message but its numbers don’t add up, so I didn’t record it.'

@@ -4,33 +4,21 @@ Telegram bots and Mini Apps can't read your SMS. Instead, your phone forwards ea
 message to your Birr server the moment it arrives, and the bot replies with the usual confirmation card.
 
 ```
-SMS from 127 / CBE ──► phone automation ──► POST https://<your-domain>/ingest/sms ──► Birr ──► card in Telegram
+SMS from 127 / CBE ──► phone automation ──► POST https://<project>.vercel.app/ingest/sms ──► Birr ──► card in Telegram
 ```
 
 Pasting into the bot still works any time, as a fallback.
 
-## 1. Make the server reachable from your phone
+## 1. Deploy first
 
-Your phone has to reach the server over HTTPS.
-
-- **Deployed:** use your domain. `PUBLIC_URL=https://birr.example.com`.
-- **Testing on your PC:** start a tunnel to the Mini App dev server, which forwards `/ingest` and `/api`
-  to the API:
-
-  ```sh
-  pnpm dev
-  cloudflared tunnel --url http://localhost:5173
-  ```
-
-  Put the printed `https://….trycloudflare.com` URL in both `PUBLIC_URL` and `MINIAPP_URL` in `.env`,
-  then restart `pnpm dev`. Quick-tunnel URLs change every time cloudflared restarts, so you'll have to
-  update the phone automation each time. Use a named tunnel or deploy for anything long-lived.
+Your phone has to reach Birr over HTTPS, so deploy it to Vercel first ([DEPLOY.md](DEPLOY.md)).
+The address is your production URL, e.g. `https://birr-tracker.vercel.app`.
 
 ## 2. Get your URL and token
 
 Send `/connect` to the bot. It replies with:
 
-- **URL**: `https://<your-domain>/ingest/sms`
+- **URL**: `https://<project>.vercel.app/ingest/sms`
 - **Token**: `birr_…`
 
 The token is the only thing protecting the endpoint. Anyone who has it can add transactions to your account.
@@ -110,7 +98,7 @@ Configure it with:
 From any computer, using your URL and token (macOS/Linux terminal, or Git Bash on Windows):
 
 ```sh
-curl -X POST "https://<your-domain>/ingest/sms" \
+curl -X POST "https://<project>.vercel.app/ingest/sms" \
   -H "Authorization: Bearer birr_…" \
   -H "Content-Type: application/json" \
   -d '{"sender":"127","body":"Dear TEST\nYou have transferred ETB 1.00 to Test Person (2519****0000) on 01/01/2026 10:00:00. Your transaction number is TESTTEST01. The service fee is  ETB 0.00 and  15% VAT on the service fee is ETB 0.00. Your current E-Money Account  balance is ETB 1.00.\nThank you for using telebirr"}'

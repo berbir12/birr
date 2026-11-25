@@ -34,7 +34,10 @@ const schema = z.object({
   TELEGRAM_WEBHOOK_SECRET: z.string().min(16).optional(),
   ALLOWED_TELEGRAM_IDS: csvIds,
 
-  DATABASE_PATH: z.string().default('./data/birr.db'),
+  /** Supabase pooler URL (postgres://…:6543/postgres). Unset = local PGlite folder (dev). 'pglite://memory' for tests. */
+  DATABASE_URL: z.string().optional(),
+  /** Vercel sends this as 'Authorization: Bearer <CRON_SECRET>' to cron endpoints. */
+  CRON_SECRET: z.string().min(16).optional(),
   /** 32 bytes, base64. Generate: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))" */
   DATA_ENCRYPTION_KEY: z
     .string()
@@ -60,7 +63,9 @@ const schema = z.object({
 export type Env = z.infer<typeof schema>;
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
-  const parsed = schema.safeParse(source);
+  // `KEY=` in a .env file (or an empty Vercel variable) means "not set", not "empty string".
+  const cleaned = Object.fromEntries(Object.entries(source).filter(([, v]) => v !== undefined && v.trim() !== ''));
+  const parsed = schema.safeParse(cleaned);
   if (!parsed.success) {
     const lines = parsed.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`);
     throw new Error(`Invalid environment:\n${lines.join('\n')}`);

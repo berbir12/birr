@@ -11,3 +11,4 @@ coverage/
 .DS_Store
 # raw, unredacted SMS never get committed
 packages/parser/fixtures/sms/_private/
+.vercel/

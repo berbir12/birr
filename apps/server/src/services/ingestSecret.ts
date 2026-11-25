@@ -18,36 +18,36 @@ function secretKey(encKey: Buffer): Buffer {
 }
 
 /** Generates a new secret, demoting the current one to "previous". Returns the plaintext. */
-export function rotateIngestSecret(db: DB, encKey: Buffer, userId: number, now = Date.now()): string {
+export async function rotateIngestSecret(db: DB, encKey: Buffer, userId: number, now = Date.now()): Promise<string> {
   const secret = PREFIX + newSecret(24);
-  const user = db.select().from(users).where(eq(users.id, userId)).get();
-  db.update(users)
+  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  await db
+    .update(users)
     .set({
       ingestSecretHash: keyedHash(secret, secretKey(encKey)),
       ingestSecretPrevHash: user?.ingestSecretHash ?? null,
       ingestSecretRotatedAt: now,
     })
-    .where(eq(users.id, userId))
-    .run();
+    .where(eq(users.id, userId));
   return secret;
 }
 
 /** Revokes both current and previous secrets (e.g. phone lost). */
-export function revokeIngestSecret(db: DB, userId: number): void {
-  db.update(users)
+export async function revokeIngestSecret(db: DB, userId: number): Promise<void> {
+  await db
+    .update(users)
     .set({ ingestSecretHash: null, ingestSecretPrevHash: null, ingestSecretRotatedAt: Date.now() })
-    .where(eq(users.id, userId))
-    .run();
+    .where(eq(users.id, userId));
 }
 
-export function userForSecret(db: DB, encKey: Buffer, secret: string, now = Date.now()): User | null {
+export async function userForSecret(db: DB, encKey: Buffer, secret: string, now = Date.now()): Promise<User | null> {
   if (!secret.startsWith(PREFIX) || secret.length > 100) return null;
   const h = keyedHash(secret, secretKey(encKey));
-  const u = db
+  const [u] = await db
     .select()
     .from(users)
     .where(or(eq(users.ingestSecretHash, h), eq(users.ingestSecretPrevHash, h)))
-    .get();
+    .limit(1);
   if (!u) return null;
   if (u.ingestSecretHash === h) return u;
   // Previous secret: only during the grace window.

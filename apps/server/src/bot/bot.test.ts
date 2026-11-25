@@ -2,9 +2,9 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { openDb, runMigrations, type DB } from '../db/client.js';
 import { rules, transactions } from '../db/schema.js';
 import { loadEnv } from '../env.js';
+import { useTestDb } from '../test/db.js';
 import { createBot } from './index.js';
 
 const FIX = join(import.meta.dirname, '../../../../packages/parser/fixtures/sms');
@@ -21,12 +21,25 @@ interface Call {
   payload: Record<string, any>;
 }
 
+const tdb = useTestDb();
+
 function setup() {
-  const db: DB = openDb(':memory:').db;
-  runMigrations(db);
+  const db = tdb.db;
   const bot = createBot(
     { db, env, encKey: randomBytes(32) },
-    { botInfo: { id: 1, is_bot: true, first_name: 'Birr', username: 'birr_bot', can_join_groups: false, can_read_all_group_messages: false, supports_inline_queries: false, can_connect_to_business: false, has_main_web_app: false } as any },
+    {
+      botInfo: {
+        id: 1,
+        is_bot: true,
+        first_name: 'Birr',
+        username: 'birr_bot',
+        can_join_groups: false,
+        can_read_all_group_messages: false,
+        supports_inline_queries: false,
+        can_connect_to_business: false,
+        has_main_web_app: false,
+      } as any,
+    },
   );
   const calls: Call[] = [];
   let nextMsgId = 1000;
@@ -59,8 +72,10 @@ function setup() {
       update_id: updateId++,
       callback_query: { id: String(updateId), from: user(), chat_instance: 'x', data, message: { message_id: messageId, date: 0, chat: chat(), text: '' } },
     } as any);
+  const txs = () => db.select().from(transactions).orderBy(transactions.id);
+  const firstTx = async () => (await txs())[0]!;
 
-  return { db, calls, send, tap, sent: () => calls.filter((c) => c.method === 'sendMessage') };
+  return { db, calls, send, tap, txs, firstTx, sent: () => calls.filter((c) => c.method === 'sendMessage') };
 }
 
 describe('bot', () => {
@@ -73,7 +88,7 @@ describe('bot', () => {
     await t.send(sms('telebirr/t01_transfer_out.txt'), 7);
     expect(t.sent()).toHaveLength(1);
     expect(t.sent()[0]!.payload.text).toMatch(/private/);
-    expect(t.db.select().from(transactions).all()).toHaveLength(0);
+    expect(await t.txs()).toHaveLength(0);
   });
 
   it('records a multi-SMS paste and replies with a summary and one card each', async () => {
@@ -101,7 +116,7 @@ describe('bot', () => {
 
   it('recategorize → "always?" → rule saved', async () => {
     await t.send(sms('telebirr/t11_transfer_out.txt'));
-    const txId = t.db.select().from(transactions).get()!.id;
+    const txId = (await t.firstTx()).id;
     await t.tap(`cat:${txId}`);
     const grid = t.calls.at(-2)!; // editMessageReplyMarkup, then answerCallbackQuery
     expect(grid.method).toBe('editMessageReplyMarkup');
@@ -113,49 +128,49 @@ describe('bot', () => {
 
     const yes = edited.payload.reply_markup.inline_keyboard.flat()[0];
     await t.tap(yes.callback_data);
-    expect(t.db.select().from(rules).all()).toMatchObject([{ field: 'counterparty_name', pattern: 'selam bekele' }]);
+    expect(await t.db.select().from(rules)).toMatchObject([{ field: 'counterparty_name', pattern: 'selam bekele' }]);
     expect(t.calls.at(-1)).toMatchObject({ method: 'answerCallbackQuery', payload: { text: 'Rule saved' } });
   });
 
   it('edit amount via prompt, then /undo reverts it', async () => {
     await t.send(sms('telebirr/t05_transfer_out.txt'));
-    const txId = t.db.select().from(transactions).get()!.id;
+    const txId = (await t.firstTx()).id;
     await t.tap(`ef:${txId}:amount`);
     expect(t.sent().at(-1)!.payload.text).toMatch(/correct amount/);
 
     await t.send('1,250.50');
-    expect(t.db.select().from(transactions).get()!.amount).toBe(125050);
+    expect((await t.firstTx()).amount).toBe(125050);
     expect(t.calls.some((c) => c.method === 'editMessageText' && c.payload.message_id === 1000)).toBe(true);
 
     await t.send('/undo');
     expect(t.sent().at(-1)!.payload.text).toMatch(/reverted the edit/);
-    expect(t.db.select().from(transactions).get()!.amount).toBe(1500);
+    expect((await t.firstTx()).amount).toBe(1500);
   });
 
   it('an SMS pasted while an edit prompt is open is ingested, not taken as the edit', async () => {
     await t.send(sms('telebirr/t05_transfer_out.txt'));
-    const txId = t.db.select().from(transactions).get()!.id;
+    const txId = (await t.firstTx()).id;
     await t.tap(`ef:${txId}:note`);
     await t.send(sms('telebirr/t06_transfer_out.txt'));
-    expect(t.db.select().from(transactions).all()).toHaveLength(2);
-    expect(t.db.select().from(transactions).get()!.note).toBeNull();
+    expect(await t.txs()).toHaveLength(2);
+    expect((await t.firstTx()).note).toBeNull();
   });
 
   it('note with #tags', async () => {
     await t.send(sms('telebirr/t05_transfer_out.txt'));
-    const txId = t.db.select().from(transactions).get()!.id;
+    const txId = (await t.firstTx()).id;
     await t.tap(`ef:${txId}:note`);
     await t.send('lunch with team #Work #lunch');
-    expect(t.db.select().from(transactions).get()).toMatchObject({ note: 'lunch with team', tags: ['work', 'lunch'] });
+    expect(await t.firstTx()).toMatchObject({ note: 'lunch with team', tags: ['work', 'lunch'] });
   });
 
   it('delete and undo-delete buttons', async () => {
     await t.send(sms('telebirr/t05_transfer_out.txt'));
-    const txId = t.db.select().from(transactions).get()!.id;
+    const txId = (await t.firstTx()).id;
     await t.tap(`del:${txId}`);
-    expect(t.db.select().from(transactions).get()!.deletedAt).not.toBeNull();
+    expect((await t.firstTx()).deletedAt).not.toBeNull();
     await t.tap(`ud:${txId}`);
-    expect(t.db.select().from(transactions).get()!.deletedAt).toBeNull();
+    expect((await t.firstTx()).deletedAt).toBeNull();
   });
 
   it('cannot touch another user’s transaction via forged callback data', async () => {
@@ -167,6 +182,6 @@ describe('bot', () => {
     await t.send([sms('cbe/c01_transfer_in.txt'), sms('cbe/c02_transfer_out.txt')].join(' '));
     await t.send('/undo');
     expect(t.sent().at(-1)!.payload.text).toMatch(/removed 2 imported transactions/);
-    expect(t.db.select().from(transactions).all()).toHaveLength(0);
+    expect(await t.txs()).toHaveLength(0);
   });
 });

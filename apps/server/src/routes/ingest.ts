@@ -14,7 +14,7 @@ import type { Env } from '../env.js';
 import { RateLimiter } from '../rateLimit.js';
 import { ingestBatch, type IngestOutcome } from '../services/ingest.js';
 import { userForSecret } from '../services/ingestSecret.js';
-import { logAction } from '../services/transactions.js';
+import { logIngest } from '../bot/index.js';
 import type { User } from '../services/users.js';
 
 export type Notify = (user: User, outcomes: IngestOutcome[]) => Promise<void>;
@@ -48,14 +48,14 @@ function clientIp(c: Parameters<typeof getConnInfo>[0]): string {
 
 export function ingestRoutes(deps: { db: DB; env: Env; encKey: Buffer; notify?: Notify }) {
   const { db, env, encKey, notify } = deps;
-  const perUser = new RateLimiter(env.INGEST_RATE_LIMIT_PER_MIN);
-  const perIp = new RateLimiter(env.INGEST_RATE_LIMIT_PER_MIN * 2);
-  const failedAuth = new RateLimiter(10);
+  const perUser = new RateLimiter(db, 'ingest-user', env.INGEST_RATE_LIMIT_PER_MIN);
+  const perIp = new RateLimiter(db, 'ingest-ip', env.INGEST_RATE_LIMIT_PER_MIN * 2);
+  const failedAuth = new RateLimiter(db, 'ingest-badauth', 10);
   const app = new Hono();
 
   app.post('/sms', bodyLimit({ maxSize: 16 * 1024 }), async (c) => {
     const ip = clientIp(c);
-    if (!perIp.hit(ip)) return c.json({ ok: false, error: 'rate_limited' }, 429);
+    if (!(await perIp.hit(ip))) return c.json({ ok: false, error: 'rate_limited' }, 429);
 
     const auth = c.req.header('authorization');
     const secret =
@@ -63,13 +63,13 @@ export function ingestRoutes(deps: { db: DB; env: Env; encKey: Buffer; notify?: 
       c.req.header('x-birr-token') ??
       c.req.query('token') ??
       '';
-    const user = secret ? userForSecret(db, encKey, secret) : null;
+    const user = secret ? await userForSecret(db, encKey, secret) : null;
     if (!user) {
-      if (!failedAuth.hit(ip)) return c.json({ ok: false, error: 'rate_limited' }, 429);
+      if (!(await failedAuth.hit(ip))) return c.json({ ok: false, error: 'rate_limited' }, 429);
       return c.json({ ok: false, error: 'unauthorized' }, 401);
     }
     if (!env.ALLOWED_TELEGRAM_IDS.includes(user.telegramId)) return c.json({ ok: false, error: 'forbidden' }, 403);
-    if (!perUser.hit(`u:${user.id}`)) return c.json({ ok: false, error: 'rate_limited' }, 429);
+    if (!(await perUser.hit(String(user.id)))) return c.json({ ok: false, error: 'rate_limited' }, 429);
 
     let raw: unknown;
     const type = c.req.header('content-type') ?? '';
@@ -84,12 +84,10 @@ export function ingestRoutes(deps: { db: DB; env: Env; encKey: Buffer; notify?: 
 
     // A saved contact name (e.g. "Telebirr 127") won't match a known sender id; let the body decide.
     const knownSender = sender && detectSource(sender, '') ? sender : null;
-    const [outcome] = ingestBatch({ db, encKey }, user.id, 'webhook', [
+    const [outcome] = await ingestBatch({ db, encKey }, user.id, 'webhook', [
       { body, sender: knownSender, receivedAt: parseReceivedAt(received_at) },
     ]);
-    if (outcome!.status === 'created') {
-      logAction(db, user.id, { action: 'ingest', payload: { txIds: [outcome!.txId], rawIds: [outcome!.rawId] } });
-    }
+    await logIngest(db, user.id, [outcome!]);
     if (notify) await notify(user, [outcome!]).catch(() => {});
 
     return c.json({

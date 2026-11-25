@@ -36,6 +36,15 @@ export function createApp(deps: AppDeps) {
     }),
   );
   app.use('*', bodyLimit({ maxSize: 20 * 1024 * 1024 }));
+  // Never log error messages verbatim: database errors embed the failed query's parameters
+  // (amounts, names, encrypted SMS). Log only the error class, code and route.
+  app.onError((err, c) => {
+    const e = err as Error & { code?: string; cause?: { code?: string } };
+    const code = e.code ?? e.cause?.code ?? '';
+    console.error(`[api] ${c.req.method} ${c.req.path} failed: ${e.name}${code ? ` (${code})` : ''}`);
+    return c.json({ ok: false, error: 'internal_error' }, 500);
+  });
+
   app.get('/health', (c) => c.json({ ok: true }));
   app.route('/ingest', ingestRoutes(deps));
 
@@ -51,7 +60,7 @@ export function createApp(deps: AppDeps) {
     if (!result.ok) return c.json({ error: 'unauthorized', reason: result.reason }, 401);
     if (!isAllowed(result.user.id, env.ALLOWED_TELEGRAM_IDS)) return c.json({ error: 'forbidden' }, 403);
 
-    c.set('user', ensureUser(db, result.user.id, result.user.first_name));
+    c.set('user', await ensureUser(db, result.user.id, result.user.first_name));
     await next();
   });
 

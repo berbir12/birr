@@ -1,137 +1,126 @@
-# Deploying Birr to a VPS (no Docker)
+# Deploying Birr: Vercel + Supabase
 
-Birr runs natively on one small Linux VPS:
+Birr runs entirely on free tiers, with nothing running at home:
 
-- **`birr.service`** (systemd): Node 22 running the API, the Telegram bot (webhook mode) and `/ingest/sms`.
-  It listens on `127.0.0.1:8787` only, runs as its own unprivileged `birr` user, and can write only to
-  `/var/lib/birr` (the SQLite database and backups).
-- **Caddy**: gets the HTTPS certificate automatically, serves the Mini App and proxies the backend.
-- **`birr-backup.timer`**: takes a consistent SQLite backup daily at 03:00 Addis time and keeps 14.
+- **Vercel** (Hobby plan) hosts the Mini App, plus one serverless function that handles the API, the
+  Telegram bot (webhook mode), `/ingest/sms` and a daily cron. You get `https://<project>.vercel.app`.
+- **Supabase** (free plan) is the Postgres database. Birr's tables live in a private `birr` schema with
+  row-level security on, so Supabase's public Data API can't read them. Only the Birr function connects,
+  using the connection string stored in Vercel.
 
 ```
-Internet ──443──► Caddy ──► /api /ingest /telegram /health ──► 127.0.0.1:8787 (birr.service)
-                       └──► everything else ──► /opt/birr/apps/miniapp/dist
+iPhone Shortcut ─► https://<project>.vercel.app/ingest/sms ┐
+Telegram ────────► https://<project>.vercel.app/telegram/…  ├─► Vercel function (fra1) ─► Supabase Postgres (Frankfurt)
+Mini App ────────► https://<project>.vercel.app/             ┘
 ```
 
-| Path | What |
-|---|---|
-| `/opt/birr` | the code (git clone, owned by `birr`) |
-| `/etc/birr/birr.env` | all configuration and secrets (root:birr, 640) |
-| `/var/lib/birr/birr.db` | the database |
-| `/var/lib/birr/backups/` | daily backups |
-| `/etc/caddy/Caddyfile` | generated from `deploy/Caddyfile.template` |
+Every push to `main` deploys automatically. Production builds also run database migrations and register
+the Telegram webhook. Preview builds touch neither.
 
-## Requirements
+## What stays private
 
-- Ubuntu 22.04/24.04 or Debian 12, with 1 GB RAM or more and root/sudo access.
-- Nothing else using ports 80/443. The installer checks and stops if something is.
-- A domain or subdomain whose DNS you control, e.g. `birr.example.com`.
-- A bot token from @BotFather and your numeric Telegram ID (from @userinfobot).
+- Raw SMS are encrypted (AES-256-GCM) with `DATA_ENCRYPTION_KEY`, which exists only in Vercel's
+  environment settings. Supabase never sees it.
+- Account numbers are stored masked to the last 4 digits.
+- Transaction details (amounts, names, categories) are stored as plain columns in Supabase, so they can
+  be searched and summed.
+- Logs never contain SMS text or query values; errors are logged as type and code only.
 
-## 1. DNS
+## 1. Telegram
 
-Create an **A record** `birr.example.com → <VPS IPv4>`, plus AAAA if the VPS has IPv6, and wait until
-it resolves:
+1. @BotFather → `/newbot`. Keep the token for step 3.
+2. Get your numeric ID from **@userinfobot**.
+3. For local development, also create a **second, test bot**. The production bot runs in webhook mode,
+   and local dev refuses to take it over.
 
-```sh
-nslookup birr.example.com     # must show the VPS IP
-```
+## 2. Supabase
 
-On Cloudflare, use **DNS only** (grey cloud) at least until the first certificate is issued.
+1. Sign up at https://supabase.com → **New project**.
+   - **Region:** Central EU (Frankfurt), next to the Vercel function.
+   - **Database password:** generate a strong one and save it in your password manager.
+2. Once it's ready, click **Connect** (top of the dashboard) → **Transaction pooler**. Copy the URI:
 
-## 2. Install (two runs)
+   ```
+   postgresql://postgres.<ref>:<password>@aws-0-eu-central-1.pooler.supabase.com:6543/postgres
+   ```
 
-From your PC, in the repo folder:
+   Replace `[YOUR-PASSWORD]` with the password from step 1. This is your `DATABASE_URL`.
+3. Recommended: Birr doesn't use Supabase's auto-generated REST API, so turn it off under
+   **Project Settings → Data API** (disable the Data API, or make sure `birr` isn't in the exposed schemas).
 
-```sh
-ssh root@<vps-ip> 'bash -s -- birr.example.com' < deploy/install.sh
-```
+Free-plan notes:
 
-Use `sudo bash -s` if you log in as a sudo user instead of root.
+- 500 MB is many years of SMS for one person.
+- Supabase pauses free projects after about a week with no activity. Daily SMS and the daily cron should
+  keep yours active.
+- The free plan has no downloadable backups. Birr's own JSON export, coming in a later phase, covers that.
 
-**Run 1** installs Node 22, pnpm and Caddy, creates the `birr` user, and prints a **deploy key**. Add it
-to GitHub as a read-only deploy key (the script prints how), or from your PC:
+## 3. Vercel
 
-```sh
-gh repo deploy-key add birr_deploy.pub --repo berbir12/birr --title birr-vps   # paste the key into birr_deploy.pub first
-```
+1. Sign up at https://vercel.com with GitHub → **Add New… → Project** → import `berbir12/birr`, and
+   grant Vercel access to the private repo when asked.
+2. **Project name** becomes your URL: e.g. `birr-tracker` gives `https://birr-tracker.vercel.app`.
+   Leave Framework Preset as **Other** and Root Directory as `./`. The build and install commands come
+   from `vercel.json`.
+3. **Before the first deploy**, open **Environment Variables** and add these with **only Production**
+   ticked (untick Preview and Development):
 
-**Run 2** (the same command again) clones the repo, builds the Mini App, writes `/etc/birr/birr.env`
-with freshly generated secrets, configures Caddy and the firewall, and installs the systemd units.
+   | Name | Value |
+   |---|---|
+   | `BOT_TOKEN` | from BotFather (production bot) |
+   | `ALLOWED_TELEGRAM_IDS` | your numeric id |
+   | `DATABASE_URL` | the Supabase transaction-pooler URI |
+   | `DATA_ENCRYPTION_KEY` | `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` |
+   | `TELEGRAM_WEBHOOK_SECRET` | `node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"` |
+   | `CRON_SECRET` | `node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"` |
+   | `PUBLIC_URL` | `https://<project>.vercel.app` |
+   | `MINIAPP_URL` | `https://<project>.vercel.app` (same) |
+   | `BOT_MODE` | `webhook` |
+   | `NODE_ENV` | `production` |
 
-## 3. Add your bot token and start
+   Generate the three secrets on your PC and paste them straight into Vercel. **Also save
+   `DATA_ENCRYPTION_KEY` in your password manager.** Without it the encrypted raw SMS can't be read.
+4. Click **Deploy**. The build log should end with:
 
-```sh
-ssh root@<vps-ip>
-nano /etc/birr/birr.env          # set BOT_TOKEN=… and ALLOWED_TELEGRAM_IDS=…
-systemctl enable --now birr
-curl -s https://birr.example.com/health   # {"ok":true}
-```
+   ```
+   ==> Migrations
+   Migrated postgresql://***@aws-0-eu-central-1.pooler.supabase.com:6543/postgres
+   ==> Telegram webhook + commands
+   [setup] @your_bot → https://<project>.vercel.app/telegram/webhook
+   ==> Done (production build)
+   ```
 
-> **Copy `DATA_ENCRYPTION_KEY` from `/etc/birr/birr.env` into your password manager.** Without it the
-> encrypted raw SMS in the database and its backups can't be read.
+   A missing or invalid variable fails the build with a message naming it. Nothing half-deploys.
+5. Open `https://<project>.vercel.app/health`. It should show `{"ok":true}`.
+6. **Settings → Deployment Protection:** keep the default (Standard Protection, which covers previews
+   only). Protecting production would block Telegram and your iPhone.
 
-If you also ran Birr on your PC with the same bot, stop it. A bot can't use long polling and a webhook
-at the same time.
+## 4. Finish in Telegram
 
-## 4. Register the Mini App with @BotFather
-
-The **Open Birr** button that `/start` sends already works. To also get the menu button next to the
-message box:
-
-1. @BotFather → `/mybots` → your bot → **Bot Settings** → **Menu Button** → **Configure menu button**.
-2. Send `https://birr.example.com` and a title, e.g. `Birr`.
-
-Optional: **Bot Settings → Configure Mini App → Enable Mini App** with the same URL.
-
-## 5. Connect your iPhone
-
-Send `/connect` to the bot and follow [SETUP.md](SETUP.md).
+1. Send `/start` to the bot and tap **📊 Open Birr**. You should see "Selam … you're signed in".
+2. Menu button: @BotFather → `/mybots` → your bot → **Bot Settings** → **Menu Button** → send
+   `https://<project>.vercel.app` and the title `Birr`.
+3. Send `/connect` and set up the iPhone automation with [SETUP.md](SETUP.md).
 
 ## Updating
 
-After pushing to `main`:
+`git push` to `main`. Vercel builds, migrates, re-registers the webhook and switches traffic once the
+build succeeds. If anything goes wrong, **Deployments → ⋯ → Instant Rollback** restores the previous
+version. Migrations only ever add to the schema, so a rollback is safe.
 
-```sh
-ssh root@<vps-ip> /opt/birr/deploy/update.sh
-```
+## Daily cron
 
-It pulls, installs, rebuilds the Mini App, restarts the service (migrations run on start) and waits for
-it to become healthy.
-
-## Day-to-day
-
-```sh
-systemctl status birr                    # running?
-journalctl -u birr -f                    # live logs (no message bodies or secrets are logged)
-systemctl restart birr                   # after editing /etc/birr/birr.env
-systemctl list-timers birr-backup.timer  # next backup
-systemctl start birr-backup              # back up now
-ls -lh /var/lib/birr/backups/
-```
-
-Copy backups off the VPS now and then, from your PC:
-
-```sh
-scp -r root@<vps-ip>:/var/lib/birr/backups ./birr-backups-$(date +%F)
-```
-
-**Restore** a backup:
-
-```sh
-systemctl stop birr
-cp /var/lib/birr/backups/birr-<timestamp>.db /var/lib/birr/birr.db
-rm -f /var/lib/birr/birr.db-wal /var/lib/birr/birr.db-shm
-chown birr:birr /var/lib/birr/birr.db
-systemctl start birr
-```
+`config.json` schedules `GET /cron/daily` at 18:00 UTC (21:00 Addis). Vercel authenticates it with
+`CRON_SECRET`. It cleans up rate-limit counters and expired bot prompts now; the daily digest and alerts
+will be added there in a later phase. You can see it under **Settings → Cron Jobs**.
 
 ## Troubleshooting
 
 | Symptom | Check |
 |---|---|
-| `birr` won't start | `journalctl -u birr -n 50`. The log names any missing or invalid setting in `/etc/birr/birr.env`. |
-| Bot doesn't answer | `curl -s https://api.telegram.org/bot<TOKEN>/getWebhookInfo` and look at `last_error_message`. Is your ID in `ALLOWED_TELEGRAM_IDS`? |
-| Certificate errors | `journalctl -u caddy -n 50`. Usually DNS isn't pointing at the VPS yet, or a Cloudflare proxy is in front. |
-| Mini App says "Could not reach the server" | `PUBLIC_URL` and `MINIAPP_URL` must both be `https://<your domain>`. |
-| Installer says ports 80/443 are in use | Another web server (nginx/Apache) is running. Stop or remove it, or ask for a config that runs Birr behind it. |
+| Build fails at "Migrations" | `DATABASE_URL` is wrong (password, or the `[YOUR-PASSWORD]` placeholder left in). If migrations time out on the transaction pooler, add `MIGRATION_DATABASE_URL` with the **Session pooler** URI (port 5432). |
+| Build fails at "Telegram webhook" | `BOT_TOKEN` is wrong, or `PUBLIC_URL` isn't `https://`. |
+| Bot doesn't answer | Vercel → **Logs** (filter `/telegram`). `curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo` shows `last_error_message`. Is your ID in `ALLOWED_TELEGRAM_IDS`? |
+| `401` on everything from Telegram | Deployment Protection is on for production. Turn it off for the production domain. |
+| Mini App says "Could not reach the server" | `PUBLIC_URL` and `MINIAPP_URL` must equal the production URL exactly. Redeploy after changing variables. |
+| Supabase project paused | Supabase dashboard → **Restore project**. |

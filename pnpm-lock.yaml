@@ -240,31 +240,34 @@ importers:
       '@birr/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@electric-sql/pglite':
+        specifier: ^0.6.0
+        version: 0.6.0
       '@hono/node-server':
         specifier: ^2.1.11
         version: 2.1.11(hono@4.13.21)
-      better-sqlite3:
-        specifier: ^13.2.0
-        version: 13.2.0
       drizzle-orm:
         specifier: ^0.45.4
-        version: 0.45.4(@types/better-sqlite3@9.6.0)(better-sqlite3@13.2.0)
+        version: 0.45.4(@electric-sql/pglite@0.6.0)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.2.0)(postgres@4.1.1)
       grammy:
         specifier: ^1.48.0
         version: 1.48.0
       hono:
         specifier: ^4.13.21
         version: 4.13.21
+      postgres:
+        specifier: ^4.1.1
+        version: 4.1.1
       zod:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
-      '@types/better-sqlite3':
-        specifier: ^9.6.0
-        version: 9.6.0
       drizzle-kit:
         specifier: ^0.31.11
         version: 0.31.11
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -291,6 +294,9 @@ packages:
 
   '@drizzle-team/brocli@0.10.2':
     resolution: {integrity: sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w==}
+
+  '@electric-sql/pglite@0.6.0':
+    resolution: {integrity: sha512-g3tAPFjRLEdN1g5FvawTl4ETo9LtmVwBRUJYnH6Erl6mhlKFRGB2mYhPABffIuXMYxki64mX0Al8U4UFUhuYDQ==}
 
   '@emnapi/core@2.0.0-beta.2':
     resolution: {integrity: sha512-MzCVoWtcg4Pm2B3je5mMvYMvj3MmBKw+fU7vbsJc9/iT8ip6/eYIHo/Dsm/mr+wsHB6SEyJDuxB09Yy6r/8+4A==}
@@ -1577,6 +1583,10 @@ packages:
     resolution: {integrity: sha512-RVHEU9/Pp1Fnjr/MpAJsZoADukCKhfIi15OunEYiGktIkYLkPVvC1sioWolGDS7XByMTx9m/IGbro0Js13zhnQ==}
     engines: {node: ^10 || ^12 || >=14}
 
+  postgres@4.1.1:
+    resolution: {integrity: sha512-1kJDojqNZC+iTHHXh6eif0J98LUtyLAePe/qkW1GK35eh2JixlsAiIKq3FGI+xqI+SUGTNodzf7TScVeIIyUug==}
+    engines: {node: '>=18'}
+
   react-dom@19.3.1:
     resolution: {integrity: sha512-Y0bARz53lhEC1NMCASs0/j+faB/zqt3R8hpvg1e8+61ZVJ4UL0UdC4cBbXfZMcIuhrfgeILTLe+ZeBCavQPtKQ==}
     peerDependencies:
@@ -1822,6 +1832,8 @@ packages:
 snapshots:
 
   '@drizzle-team/brocli@0.10.2': {}
+
+  '@electric-sql/pglite@0.6.0': {}
 
   '@emnapi/core@2.0.0-beta.2':
     dependencies:
@@ -2365,6 +2377,7 @@ snapshots:
   '@types/better-sqlite3@9.6.0':
     dependencies:
       '@types/node': 22.20.5
+    optional: true
 
   '@types/chai@5.2.3':
     dependencies:
@@ -2447,6 +2460,7 @@ snapshots:
   better-sqlite3@13.2.0:
     dependencies:
       node-addon-api: 8.9.2
+    optional: true
 
   buffer-from@1.1.2: {}
 
@@ -2479,10 +2493,12 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.15
 
-  drizzle-orm@0.45.4(@types/better-sqlite3@9.6.0)(better-sqlite3@13.2.0):
+  drizzle-orm@0.45.4(@electric-sql/pglite@0.6.0)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.2.0)(postgres@4.1.1):
     optionalDependencies:
+      '@electric-sql/pglite': 0.6.0
       '@types/better-sqlite3': 9.6.0
       better-sqlite3: 13.2.0
+      postgres: 4.1.1
 
   enhanced-resolve@5.27.0:
     dependencies:
@@ -2678,7 +2694,8 @@ snapshots:
 
   nanoid@3.3.20: {}
 
-  node-addon-api@8.9.2: {}
+  node-addon-api@8.9.2:
+    optional: true
 
   node-fetch@2.7.0:
     dependencies:
@@ -2697,6 +2714,8 @@ snapshots:
       nanoid: 3.3.20
       picocolors: 1.1.1
       source-map-js: 1.2.4
+
+  postgres@4.1.1: {}
 
   react-dom@19.3.1(react@19.3.1):
     dependencies:

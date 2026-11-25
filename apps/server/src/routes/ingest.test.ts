@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../app.js';
-import { openDb, runMigrations, type DB } from '../db/client.js';
+import { useTestDb } from '../test/db.js';
 import { transactions, users } from '../db/schema.js';
 import { loadEnv, type Env } from '../env.js';
 import { revokeIngestSecret, rotateIngestSecret, SECRET_GRACE_MS, userForSecret } from '../services/ingestSecret.js';
@@ -19,7 +19,7 @@ const baseEnv = {
   DATA_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
 };
 
-let db: DB;
+const tdb = useTestDb();
 let env: Env;
 let secret: string;
 let userId: number;
@@ -28,7 +28,7 @@ const notify = vi.fn(async () => {});
 
 function app(extra: Record<string, string> = {}) {
   env = loadEnv({ ...baseEnv, ...extra });
-  return createApp({ db, env, encKey, notify });
+  return createApp({ db: tdb.db, env, encKey, notify });
 }
 
 const post = (a: ReturnType<typeof app>, body: unknown, headers: Record<string, string> = {}, path = '/ingest/sms') =>
@@ -38,11 +38,9 @@ const post = (a: ReturnType<typeof app>, body: unknown, headers: Record<string, 
     body: JSON.stringify(body),
   });
 
-beforeEach(() => {
-  db = openDb(':memory:').db;
-  runMigrations(db);
-  userId = ensureUser(db, 42, 'T').id;
-  secret = rotateIngestSecret(db, encKey, userId);
+beforeEach(async () => {
+  userId = (await ensureUser(tdb.db, 42, 'T')).id;
+  secret = await rotateIngestSecret(tdb.db, encKey, userId);
   notify.mockClear();
 });
 
@@ -53,7 +51,7 @@ describe('POST /ingest/sms', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, status: 'created', txId: expect.any(Number) });
     expect(notify).toHaveBeenCalledOnce();
-    expect(db.select().from(transactions).get()).toMatchObject({ channel: 'webhook', amount: 550000 });
+    expect((await tdb.db.select().from(transactions))[0]).toMatchObject({ channel: 'webhook', amount: 550000 });
   });
 
   it('is idempotent when the automation fires twice', async () => {
@@ -62,13 +60,13 @@ describe('POST /ingest/sms', () => {
     await post(a, body);
     const res = await post(a, body);
     expect(await res.json()).toMatchObject({ status: 'duplicate' });
-    expect(db.select().from(transactions).all()).toHaveLength(1);
+    expect((await tdb.db.select().from(transactions))).toHaveLength(1);
   });
 
   it('uses received_at for undated CBE messages', async () => {
     const a = app();
     await post(a, { sender: 'CBE', body: sms('cbe/c01_transfer_in.txt'), received_at: '2026-11-20T09:15:00+03:00' });
-    expect(db.select().from(transactions).get()!.occurredAt).toBe(Date.parse('2026-11-20T09:15:00+03:00'));
+    expect((await tdb.db.select().from(transactions))[0]!.occurredAt).toBe(Date.parse('2026-11-20T09:15:00+03:00'));
   });
 
   it('falls back to the body when the sender is a saved contact name', async () => {
@@ -100,9 +98,9 @@ describe('POST /ingest/sms', () => {
     const body = { body: sms('telebirr/t01_transfer_out.txt') };
     expect((await post(a, body, { authorization: '' })).status).toBe(401);
     expect((await post(a, body, { authorization: 'Bearer birr_wrong' })).status).toBe(401);
-    revokeIngestSecret(db, userId);
+    await revokeIngestSecret(tdb.db, userId);
     expect((await post(a, body)).status).toBe(401);
-    expect(db.select().from(transactions).all()).toHaveLength(0);
+    expect((await tdb.db.select().from(transactions))).toHaveLength(0);
   });
 
   it('rejects a valid token whose user was removed from the allowlist', async () => {
@@ -140,17 +138,17 @@ describe('POST /ingest/sms', () => {
 });
 
 describe('ingest secret rotation', () => {
-  it('previous secret works only within the grace window', () => {
+  it('previous secret works only within the grace window', async () => {
     const t0 = Date.now();
     const old = secret;
-    const fresh = rotateIngestSecret(db, encKey, userId, t0);
-    expect(userForSecret(db, encKey, fresh, t0)?.id).toBe(userId);
-    expect(userForSecret(db, encKey, old, t0 + SECRET_GRACE_MS - 1)?.id).toBe(userId);
-    expect(userForSecret(db, encKey, old, t0 + SECRET_GRACE_MS + 1)).toBeNull();
+    const fresh = await rotateIngestSecret(tdb.db, encKey, userId, t0);
+    expect((await userForSecret(tdb.db, encKey, fresh, t0))?.id).toBe(userId);
+    expect((await userForSecret(tdb.db, encKey, old, t0 + SECRET_GRACE_MS - 1))?.id).toBe(userId);
+    expect(await userForSecret(tdb.db, encKey, old, t0 + SECRET_GRACE_MS + 1)).toBeNull();
   });
 
-  it('stores only hashes', () => {
-    const u = db.select().from(users).get()!;
+  it('stores only hashes', async () => {
+    const u = (await tdb.db.select().from(users))[0]!;
     expect(u.ingestSecretHash).toMatch(/^[0-9a-f]{64}$/);
     expect(JSON.stringify(u)).not.toContain(secret);
   });
