@@ -49,6 +49,8 @@ await esbuild.build({
   // PGlite is only for local dev/tests and ships wasm assets; it is never loaded on Vercel.
   external: ['@electric-sql/pglite', 'drizzle-orm/pglite', 'drizzle-orm/pglite/migrator'],
   banner: { js: "import { createRequire as __birrCreateRequire } from 'node:module'; const require = __birrCreateRequire(import.meta.url);" },
+  // Production domain known at build time → default PUBLIC_URL/MINIAPP_URL even if the runtime lacks it.
+  define: { __BIRR_PRODUCTION_HOST__: JSON.stringify(isProd ? (process.env.VERCEL_PROJECT_PRODUCTION_URL ?? '') : '') },
   legalComments: 'none',
   logLevel: 'info',
 });

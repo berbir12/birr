@@ -69,9 +69,24 @@ const schema = z.object({
 
 export type Env = z.infer<typeof schema>;
 
+/** Replaced at bundle time by scripts/build-vercel.mjs (esbuild `define`); empty everywhere else. */
+declare const __BIRR_PRODUCTION_HOST__: string | undefined;
+const BUILT_PRODUCTION_HOST: string | undefined =
+  typeof __BIRR_PRODUCTION_HOST__ === 'string' && __BIRR_PRODUCTION_HOST__ ? __BIRR_PRODUCTION_HOST__ : undefined;
+
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   // `KEY=` in a .env file (or an empty Vercel variable) means "not set", not "empty string".
-  const cleaned = Object.fromEntries(Object.entries(source).filter(([, v]) => v !== undefined && v.trim() !== ''));
+  const cleaned: Record<string, string> = Object.fromEntries(
+    Object.entries(source).filter((e): e is [string, string] => e[1] !== undefined && e[1].trim() !== ''),
+  );
+  // On Vercel, default both URLs to the project's production domain, which Vercel provides itself
+  // (and which the build also bakes in), so nobody has to know the URL before the first deploy.
+  const vercelHost = cleaned.VERCEL_PROJECT_PRODUCTION_URL ?? BUILT_PRODUCTION_HOST;
+  if (vercelHost && (cleaned.VERCEL || BUILT_PRODUCTION_HOST)) {
+    const url = `https://${vercelHost.replace(/^https?:\/\//, '').replace(/\/$/, '')}`;
+    cleaned.PUBLIC_URL ??= url;
+    cleaned.MINIAPP_URL ??= cleaned.PUBLIC_URL;
+  }
   const parsed = schema.safeParse(cleaned);
   if (!parsed.success) {
     const lines = parsed.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`);

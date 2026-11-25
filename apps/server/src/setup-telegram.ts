@@ -33,11 +33,11 @@ const REQUIRED = [
   'DATA_ENCRYPTION_KEY',
   'TELEGRAM_WEBHOOK_SECRET',
   'CRON_SECRET',
-  'PUBLIC_URL',
-  'MINIAPP_URL',
   'BOT_MODE',
 ];
 const missing = REQUIRED.filter((k) => !process.env[k]?.trim());
+// PUBLIC_URL/MINIAPP_URL default to Vercel's production domain; only needed for a custom domain.
+if (!process.env.PUBLIC_URL?.trim() && !process.env.VERCEL_PROJECT_PRODUCTION_URL) missing.push('PUBLIC_URL');
 if (missing.length) fail(missing.map((k) => `${k} is not set`));
 
 let env;
@@ -53,18 +53,17 @@ try {
   );
 }
 
-// Vercel tells the build its production domain, so we can say exactly what PUBLIC_URL should be.
-const prodHost = process.env.VERCEL_PROJECT_PRODUCTION_URL;
-const expectedUrl = prodHost ? `https://${prodHost.replace(/^https?:\/\//, '').replace(/\/$/, '')}` : 'https://<project>.vercel.app';
+// PUBLIC_URL/MINIAPP_URL default to this project's production domain (see loadEnv); set them only
+// for a custom domain.
 const problems: string[] = [];
 if (process.env.NODE_ENV !== 'production') problems.push(`NODE_ENV is "${process.env.NODE_ENV}"; set it to production`);
 if (env.BOT_MODE !== 'webhook') problems.push(`BOT_MODE is "${env.BOT_MODE}"; set it to webhook`);
 if (!env.TELEGRAM_WEBHOOK_SECRET) problems.push('TELEGRAM_WEBHOOK_SECRET is required');
-if (!env.PUBLIC_URL.startsWith('https://') || (prodHost && env.PUBLIC_URL.replace(/\/$/, '') !== expectedUrl)) {
-  problems.push(`PUBLIC_URL is "${env.PUBLIC_URL}"; set it to ${expectedUrl}`);
+if (!env.PUBLIC_URL.startsWith('https://')) {
+  problems.push(`PUBLIC_URL is "${env.PUBLIC_URL}"; delete it in Vercel (it defaults to this project's address) or use an https:// custom domain`);
 }
 if (env.MINIAPP_URL.replace(/\/$/, '') !== env.PUBLIC_URL.replace(/\/$/, '')) {
-  problems.push(`MINIAPP_URL is "${env.MINIAPP_URL}"; set it to the same value as PUBLIC_URL (${expectedUrl})`);
+  problems.push(`MINIAPP_URL is "${env.MINIAPP_URL}" but PUBLIC_URL is "${env.PUBLIC_URL}"; delete both in Vercel, or make them equal`);
 }
 if (!env.DATABASE_URL?.startsWith('postgres')) problems.push('DATABASE_URL must be the Supabase postgres:// connection string');
 if (/\[YOUR-PASSWORD\]/i.test(env.DATABASE_URL ?? '')) problems.push('DATABASE_URL still contains [YOUR-PASSWORD]; put the real database password in');
