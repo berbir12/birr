@@ -53,11 +53,19 @@ try {
   );
 }
 
+// Vercel tells the build its production domain, so we can say exactly what PUBLIC_URL should be.
+const prodHost = process.env.VERCEL_PROJECT_PRODUCTION_URL;
+const expectedUrl = prodHost ? `https://${prodHost.replace(/^https?:\/\//, '').replace(/\/$/, '')}` : 'https://<project>.vercel.app';
 const problems: string[] = [];
-if (env.BOT_MODE !== 'webhook') problems.push('BOT_MODE must be "webhook"');
+if (process.env.NODE_ENV !== 'production') problems.push(`NODE_ENV is "${process.env.NODE_ENV}"; set it to production`);
+if (env.BOT_MODE !== 'webhook') problems.push(`BOT_MODE is "${env.BOT_MODE}"; set it to webhook`);
 if (!env.TELEGRAM_WEBHOOK_SECRET) problems.push('TELEGRAM_WEBHOOK_SECRET is required');
-if (!env.PUBLIC_URL.startsWith('https://')) problems.push('PUBLIC_URL must be your https://<project>.vercel.app address');
-if (env.MINIAPP_URL !== env.PUBLIC_URL) problems.push('MINIAPP_URL must equal PUBLIC_URL');
+if (!env.PUBLIC_URL.startsWith('https://') || (prodHost && env.PUBLIC_URL.replace(/\/$/, '') !== expectedUrl)) {
+  problems.push(`PUBLIC_URL is "${env.PUBLIC_URL}"; set it to ${expectedUrl}`);
+}
+if (env.MINIAPP_URL.replace(/\/$/, '') !== env.PUBLIC_URL.replace(/\/$/, '')) {
+  problems.push(`MINIAPP_URL is "${env.MINIAPP_URL}"; set it to the same value as PUBLIC_URL (${expectedUrl})`);
+}
 if (!env.DATABASE_URL?.startsWith('postgres')) problems.push('DATABASE_URL must be the Supabase postgres:// connection string');
 if (/\[YOUR-PASSWORD\]/i.test(env.DATABASE_URL ?? '')) problems.push('DATABASE_URL still contains [YOUR-PASSWORD]; put the real database password in');
 if (env.ALLOWED_TELEGRAM_IDS.length === 0) problems.push('ALLOWED_TELEGRAM_IDS is empty; nobody could use the bot');
