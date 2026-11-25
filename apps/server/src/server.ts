@@ -12,6 +12,7 @@ import { openDb, type DbHandle } from './db/client.js';
 import { botState } from './db/schema.js';
 import type { Env } from './env.js';
 import { purgeRateLimits } from './rateLimit.js';
+import { purgeExpiredImports } from './services/importer.js';
 
 function safeEqual(got: string | undefined, expected: string | undefined): boolean {
   if (!got || !expected) return false;
@@ -51,6 +52,7 @@ export async function buildServer(env: Env, opts: BuildOptions = {}) {
       return c.json({ ok: false }, 401);
     }
     await purgeRateLimits(db);
+    await purgeExpiredImports(db);
     await db.delete(botState).where(and(isNotNull(botState.expiresAt), lt(botState.expiresAt, Date.now())));
     return c.json({ ok: true });
   });

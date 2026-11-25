@@ -335,6 +335,29 @@ export const actionLog = birr
   )
   .enableRLS();
 
+/**
+ * A bulk import between "preview" and "import": the relevant SMS from the uploaded file,
+ * encrypted like raw messages, plus the preview counts. Expires after an hour.
+ */
+export const imports = birr
+  .table(
+    'imports',
+    {
+      id: id(),
+      userId: userId(),
+      fileName: text('file_name').notNull(),
+      format: text('format', { enum: ['xml', 'csv', 'txt'] }).notNull(),
+      /** AES-256-GCM encrypted JSON array of { body, sender, receivedAt }. Emptied after commit/cancel. */
+      entriesEnc: bytea('entries_enc'),
+      summary: jsonb('summary').$type<Record<string, unknown>>().notNull(),
+      status: text('status', { enum: ['pending', 'committed', 'cancelled'] }).notNull().default('pending'),
+      expiresAt: ms('expires_at').notNull(),
+      createdAt: createdAt(),
+    },
+    (t) => [index('imports_user_status').on(t.userId, t.status)],
+  )
+  .enableRLS();
+
 /** Per-user conversational state for the bot (e.g. "waiting for the new amount"). Serverless-safe. */
 export const botState = birr
   .table('bot_state', {

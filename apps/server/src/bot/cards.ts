@@ -37,6 +37,13 @@ export function cardText(t: TxView, tz: string, footer?: string): string {
 
   lines.push(`🕒 ${t.occurredAtEstimated ? '~' : ''}${formatWhen(t.occurredAt, tz)}${t.occurredAtEstimated ? ' (time estimated)' : ''}`);
   if (t.note || t.tags.length) lines.push(`📝 ${esc([t.note, ...t.tags.map((x) => `#${x}`)].filter(Boolean).join(' '))}`);
+  if (t.transferGroupId) {
+    lines.push(`🔁 Internal transfer${t.transferPeerAccount ? ` ${t.direction === 'out' ? 'to' : 'from'} ${esc(t.transferPeerAccount)}` : ''} · not spending`);
+  }
+  if (t.reconciliation === 'gap' && t.reconciliationDelta !== null) {
+    const which = t.reconciliationDelta > 0 ? 'money in' : 'money out';
+    lines.push(`⚠️ Possible missing SMS before this one: ${formatEtb(Math.abs(t.reconciliationDelta))} of ${which} unrecorded`);
+  }
   if (t.deletedAt) lines.push('🗑 <i>Deleted</i>');
   if (footer) lines.push('', footer);
   return lines.join('\n');

@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { createApp } from './app.js';
 import { signInitData } from './auth/initData.js';
@@ -54,6 +56,34 @@ describe('API auth', () => {
     spy.mockRestore();
     expect(logged).toContain('(23505)');
     expect(logged).not.toMatch(/Selam|550000|params/);
+  });
+
+  it('import API: preview → commit, and the gaps list', async () => {
+    const a = app();
+    const body = readFileSync(join(import.meta.dirname, '../../../packages/parser/fixtures/sms/cbe/c01_transfer_in.txt'), 'utf8');
+    const later = readFileSync(join(import.meta.dirname, '../../../packages/parser/fixtures/sms/cbe/c03_debit.txt'), 'utf8');
+    const headers = { ...auth(42), 'content-type': 'application/json' };
+
+    const p = await a.request('/api/import/preview', { method: 'POST', headers, body: JSON.stringify({ fileName: 'x.txt', content: `${later}\n\n${body}` }) }); // newest first, like a phone
+    expect(p.status).toBe(200);
+    const { importId, summary } = await p.json();
+    expect(summary).toMatchObject({ relevant: 2, created: 2 });
+
+    const c = await a.request(`/api/import/${importId}/commit`, { method: 'POST', headers });
+    expect(await c.json()).toMatchObject({ counts: { created: 2 }, gaps: 1, linked: 0 });
+    expect((await a.request(`/api/import/${importId}/commit`, { method: 'POST', headers })).status).toBe(409);
+
+    const g = await (await a.request('/api/reconciliation/gaps', { headers })).json();
+    expect(g.gaps).toHaveLength(1);
+    expect(g.gaps[0]).toMatchObject({ accountName: 'CBE ****4321', delta: -348120 });
+  });
+
+  it('import API rejects bad input and other users’ imports', async () => {
+    const a = app();
+    const headers = { ...auth(42), 'content-type': 'application/json' };
+    expect((await a.request('/api/import/preview', { method: 'POST', headers, body: '{}' })).status).toBe(400);
+    expect((await a.request('/api/import/abc/commit', { method: 'POST', headers })).status).toBe(404);
+    expect((await a.request('/api/import/999/commit', { method: 'POST', headers })).status).toBe(409);
   });
 
   it('two concurrent first requests create one user', async () => {

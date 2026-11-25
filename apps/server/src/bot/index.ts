@@ -21,6 +21,9 @@ import {
   type EditableField,
 } from '../services/transactions.js';
 import { ensureUser, type User } from '../services/users.js';
+import { cancelImport, commitImport, ImportError, previewImport, type ImportSummary } from '../services/importer.js';
+import { transactions } from '../db/schema.js';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import {
   cardText,
   categoryKeyboard,
@@ -38,6 +41,34 @@ export interface BotDeps {
   db: DB;
   env: Env;
   encKey: Buffer;
+  /** Downloads a Telegram file by file_path. Injectable for tests. */
+  downloadFile?: (filePath: string) => Promise<Buffer>;
+}
+
+/** Telegram bots can download files up to 20 MB. */
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
+const IMPORTABLE = /\.(xml|csv|tsv|txt)$/i;
+
+/** SMS exports are UTF-8, but some CSV tools write UTF-16 with a BOM. */
+export function decodeText(buf: Buffer): string {
+  if (buf[0] === 0xff && buf[1] === 0xfe) return buf.subarray(2).toString('utf16le');
+  if (buf[0] === 0xfe && buf[1] === 0xff) return Buffer.from(buf.subarray(2)).swap16().toString('utf16le');
+  return buf.toString('utf8');
+}
+
+const fmtDay = (ms: number, tz: string) =>
+  new Intl.DateTimeFormat('en-GB', { timeZone: tz, day: 'numeric', month: 'short', year: 'numeric' }).format(ms);
+const n = (x: number) => x.toLocaleString('en-US');
+
+export function importPreviewText(s: ImportSummary, tz: string): string {
+  const lines = [
+    `📦 <b>${esc(s.fileName)}</b>`,
+    `${n(s.inFile)} message${s.inFile === 1 ? '' : 's'} in the file · ${n(s.relevant)} from telebirr/CBE` +
+      (s.relevant ? ` (telebirr ${n(s.bySource.telebirr)} · CBE ${n(s.bySource.cbe)})` : ''),
+  ];
+  if (s.from !== null && s.to !== null) lines.push(`📅 ${fmtDay(s.from, tz)} – ${fmtDay(s.to, tz)}`);
+  lines.push('', `✅ ${n(s.created)} new · ↺ ${n(s.duplicates)} already recorded · 🔍 ${n(s.review)} for review`);
+  return lines.join('\n');
 }
 
 /** Cards sent individually per paste; the rest are summarised. */
@@ -137,6 +168,82 @@ export function createBot(deps: BotDeps, botConfig?: ConstructorParameters<typeo
     const outcomes = await ingestBatch({ db, encKey }, ctx.user.id, 'bot', parts.map((body) => ({ body, receivedAt: now })));
     await logIngest(db, ctx.user.id, outcomes);
     await sendOutcomes(ctx.api, deps, ctx.user, ctx.chat.id, outcomes, 'paste');
+  });
+
+  // ---------- bulk import: send a backup file ----------
+  const download =
+    deps.downloadFile ??
+    (async (filePath: string) => {
+      const res = await fetch(`https://api.telegram.org/file/bot${env.BOT_TOKEN}/${filePath}`);
+      if (!res.ok) throw new Error(`download failed: ${res.status}`);
+      return Buffer.from(await res.arrayBuffer());
+    });
+
+  bot.on('message:document', async (ctx) => {
+    const doc = ctx.message.document;
+    const name = doc.file_name ?? 'file';
+    if (!IMPORTABLE.test(name) && !doc.mime_type?.startsWith('text/')) {
+      await ctx.reply('Send an SMS export as .xml (SMS Backup & Restore), .csv or .txt to import it.');
+      return;
+    }
+    if ((doc.file_size ?? 0) > MAX_FILE_BYTES) {
+      await ctx.reply('That file is over 20 MB, the most Telegram lets bots download. Export only telebirr (127) and CBE conversations, or split it.');
+      return;
+    }
+    await ctx.replyWithChatAction('typing').catch(() => {});
+    const file = await ctx.getFile();
+    const content = decodeText(await download(file.file_path!));
+
+    let preview;
+    try {
+      preview = await previewImport({ db, encKey }, ctx.user.id, name, content);
+    } catch (e) {
+      if (e instanceof ImportError) return void (await ctx.reply(e.message));
+      throw e;
+    }
+    const { importId, summary } = preview;
+    const text = importPreviewText(summary, tzOf(ctx));
+    if (!summary.created && !summary.review) {
+      await cancelImport(db, ctx.user.id, importId);
+      await ctx.reply(`${text}\n\nNothing new to import.`, { parse_mode: 'HTML' });
+      return;
+    }
+    const kb = new InlineKeyboard()
+      .text(`📥 Import ${n(summary.created + summary.review)}`, `imp:${importId}`)
+      .text('✖ Cancel', `impx:${importId}`);
+    await ctx.reply(`${text}\n\nNothing is saved until you tap Import.`, { parse_mode: 'HTML', reply_markup: kb });
+  });
+
+  bot.callbackQuery(/^imp(x?):(\d+)$/, async (ctx) => {
+    const [, cancel, idStr] = ctx.match as RegExpMatchArray;
+    const importId = Number(idStr);
+    if (cancel) {
+      await cancelImport(db, ctx.user.id, importId);
+      await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+      await ctx.reply('Import cancelled. Nothing was saved.');
+      return ctx.answerCallbackQuery();
+    }
+    await ctx.answerCallbackQuery({ text: 'Importing…' });
+    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+    let result;
+    try {
+      result = await commitImport({ db, encKey }, ctx.user.id, importId);
+    } catch (e) {
+      if (e instanceof ImportError) return void (await ctx.reply(e.message));
+      throw e;
+    }
+    await logIngest(db, ctx.user.id, result.outcomes);
+    const createdIds = result.outcomes.flatMap((o) => (o.status === 'created' ? [o.txId] : []));
+    const { gaps, linked } = await importFindings(db, ctx.user.id, createdIds);
+    const lines = [
+      `✅ Imported ${n(result.counts.created)} transaction${result.counts.created === 1 ? '' : 's'}` +
+        (result.counts.review ? ` · 🔍 ${n(result.counts.review)} for review` : '') +
+        (result.counts.duplicates ? ` · ↺ ${n(result.counts.duplicates)} already recorded` : ''),
+    ];
+    if (linked) lines.push(`🔁 ${n(linked)} internal transfer${linked === 1 ? '' : 's'} between your accounts (not counted as spending)`);
+    if (gaps) lines.push(`⚠️ ${n(gaps)} place${gaps === 1 ? '' : 's'} where the balance doesn’t add up: probably missing SMS`);
+    lines.push('', 'Open the app to browse them. /undo removes this whole import.');
+    await ctx.reply(lines.join('\n'), { reply_markup: new InlineKeyboard().webApp('📊 Open Birr', env.MINIAPP_URL) });
   });
 
   async function applyEdit(ctx: BotContext, p: PendingEdit, text: string) {
@@ -267,6 +374,25 @@ export const BOT_COMMANDS = [
   { command: 'connect', description: 'Set up automatic SMS forwarding' },
   { command: 'disconnect', description: 'Stop accepting forwarded SMS' },
 ];
+
+/** Among freshly imported transactions: how many sit after a balance gap, and how many got linked. */
+export async function importFindings(db: DB, userId: number, txIds: readonly number[]): Promise<{ gaps: number; linked: number }> {
+  let gaps = 0;
+  let linked = 0;
+  for (let i = 0; i < txIds.length; i += 1000) {
+    const part = txIds.slice(i, i + 1000);
+    const [row] = await db
+      .select({
+        gaps: sql<number>`count(*) filter (where ${transactions.reconciliation} = 'gap')::int`,
+        linked: sql<number>`count(distinct ${transactions.transferGroupId})::int`,
+      })
+      .from(transactions)
+      .where(and(eq(transactions.userId, userId), inArray(transactions.id, part)));
+    gaps += row?.gaps ?? 0;
+    linked += row?.linked ?? 0;
+  }
+  return { gaps, linked };
+}
 
 /** Records an ingest in the action log so /undo can remove it. */
 export async function logIngest(db: DB, userId: number, outcomes: IngestOutcome[]): Promise<void> {

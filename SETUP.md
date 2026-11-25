@@ -122,9 +122,28 @@ That proves the automation works.
 
 ## Backfilling old messages
 
-The automation only catches new SMS. For your history:
+The automation only catches new SMS. To add your history, **send the export file to the bot** as a
+document (.xml, .csv or .txt, up to 20 MB). Birr keeps only telebirr and CBE messages and shows a
+preview before anything is saved:
 
-- **Android:** export with "SMS Backup & Restore" (XML) and import it in Birr. Bulk import is part of this phase.
-- **iPhone:** iOS has no built-in SMS export. Options:
-  - paste batches of messages into the bot (it handles many at once and orders undated CBE ones by balance);
-  - export from a computer backup with a tool such as iMazing (CSV/TXT) and import that file.
+```
+📦 messages.csv
+2,431 messages in the file · 312 from telebirr/CBE (telebirr 201 · CBE 111)
+📅 12 Mar 2025 – 24 Nov 2026
+
+✅ 287 new · ↺ 18 already recorded · 🔍 7 for review
+```
+
+Tap **📥 Import** to save, or **✖ Cancel**. Importing the same file twice is harmless, and `/undo` removes
+the whole import. Afterwards Birr tells you how many internal transfers it linked and where the balance
+doesn't add up (probably missing SMS).
+
+Where to get a file:
+
+- **iPhone:** iOS has no built-in SMS export. Back up the phone to a computer and export the 127 and CBE
+  conversations with a tool such as iMazing (CSV or TXT). Or paste batches of messages into the bot; it
+  handles many at once and orders undated CBE ones by balance.
+- **Android:** use "SMS Backup & Restore" to back up messages, then send the .xml to the bot.
+
+Export only the 127 and CBE conversations if you can. It keeps the file small, and Birr discards other
+messages anyway.

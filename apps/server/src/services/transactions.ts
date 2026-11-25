@@ -1,5 +1,5 @@
 import { ruleFor } from '@birr/core';
-import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { DB } from '../db/client.js';
 import { accounts, actionLog, categories, rawMessages, rules, transactions } from '../db/schema.js';
 
@@ -10,6 +10,8 @@ export interface TxView extends TxRow {
   categoryName: string | null;
   categoryIcon: string | null;
   accountName: string;
+  /** For linked internal transfers: the account on the other side. */
+  transferPeerAccount: string | null;
 }
 
 /** A transaction owned by `userId`, joined with its category and account names. */
@@ -29,7 +31,17 @@ export async function getTx(db: DB, userId: number, txId: number): Promise<TxVie
     .limit(1);
   if (!r) return undefined;
   const { tx, ...joined } = r;
-  return { ...tx, ...joined };
+  let transferPeerAccount: string | null = null;
+  if (tx.transferGroupId) {
+    const [peer] = await db
+      .select({ name: accounts.name })
+      .from(transactions)
+      .innerJoin(accounts, eq(accounts.id, transactions.accountId))
+      .where(and(eq(transactions.userId, userId), eq(transactions.transferGroupId, tx.transferGroupId), ne(transactions.id, tx.id)))
+      .limit(1);
+    transferPeerAccount = peer?.name ?? null;
+  }
+  return { ...tx, ...joined, transferPeerAccount };
 }
 
 export async function listCategories(db: DB, userId: number) {

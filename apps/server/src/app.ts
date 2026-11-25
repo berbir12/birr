@@ -7,6 +7,7 @@ import { isAllowed } from './auth/allowlist.js';
 import { validateInitData } from './auth/initData.js';
 import type { DB } from './db/client.js';
 import type { Env } from './env.js';
+import { registerApiRoutes } from './routes/api.js';
 import { ingestRoutes, type Notify } from './routes/ingest.js';
 import { ensureUser, type User } from './services/users.js';
 
@@ -75,6 +76,7 @@ export function createApp(deps: AppDeps) {
     });
   });
 
+  registerApiRoutes(api, deps);
   app.route('/api', api);
   app.all('/api/*', (c) => c.json({ error: 'not_found' }, 404));
   app.all('/ingest/*', (c) => c.json({ error: 'not_found' }, 404));
